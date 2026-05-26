@@ -45,6 +45,14 @@
   const STAGE3_REMARK_NON_RO = 'With reference to the application for a No Objection Certificate (NOC) to appear in another examination, it is respectfully submitted that the employee is clear from the vigilance perspective at the Divisional Office and Regional Office, and the administrative clearances from the Divisional and Regional Offices are also in place. The request is in compliance with the previously issued advisory on such matters. In view of the above, and considering that all requisite clearances have been duly obtained, if agreed, the NOC for appearing in the said examination may kindly be approved.';
 
   const STAGE3_REMARK_RO = 'With reference to the application for a No Objection Certificate (NOC) to appear in another examination, it is respectfully submitted that the employee is clear from the vigilance  and administrative perspective at  Regional Office, level. The request is in compliance with the previously issued advisory on such matters. In view of the above, and considering that all requisite clearances have been duly obtained, if agreed, the NOC for appearing in the said examination may kindly be approved.';
+
+  // STAGE 3B / 3C: Designation landmark used to find the DO Manager (person of interest)
+  // The DO Manager = entry immediately before the AGM entry that has a non-N/A remark
+  const AGM_DESIGNATION = 'Assistant General Manager';
+
+  // Office Type values on the Add Reviewer page
+  const OFFICE_TYPE_RO = '4';   // value="4" = RO (confirmed)
+  const OFFICE_TYPE_DO = '5';   // value="5" = DO (confirmed from portal inspector)
   // ----------------------
 
   // STEP 1: Click View Action History
@@ -100,8 +108,10 @@
       const cells = row.querySelectorAll('td');
       if (cells.length === 8) {
         currentEntry = {
+          slNo:         cells[0].textContent.trim(),   // S.No. — used in Stage 3B remark
           actionTaken:  cells[3].textContent.trim(),
           employeeName: cells[4].textContent.trim(),
+          designation:  cells[5].textContent.trim(),   // needed for AGM landmark detection
           remark:       ''
         };
         entries.push(currentEntry);
@@ -144,17 +154,14 @@
       && afterDispatched.actionTaken.trim() === STAGE1_NEXT_ACTION
       && afterDispatched.remark.trim() === STAGE1_NEXT_REMARK;
 
-    // --- Check STAGE 3 ---
-    // Last 'Reviewed' = one of the three assistants (MADHU DHAKA / DIVYA KORNU / VISHALI MARWAHA)
-    // + next = AMIT KUMAR SINGH (Pending Review, N/A)
-    // + the last assistant's remark contains the key sentence
-    const ASSISTANT_NAMES_STAGE3 = ['MADHU DHAKA', 'DIVYA KORNU', 'VISHALI MARWAHA'];
+    // --- Find the last assistant reviewed entry (used by Stage 3, 3B, 3C) ---
+    const ASSISTANT_NAMES = ['MADHU DHAKA', 'DIVYA KORNU', 'VISHALI MARWAHA'];
 
     let lastAssistantReviewedIndex = -1;
     for (let i = 0; i < entries.length; i++) {
       if (entries[i].actionTaken === 'Reviewed') {
         const nameUpper = entries[i].employeeName.toUpperCase();
-        if (ASSISTANT_NAMES_STAGE3.some(function(n) { return nameUpper.includes(n); })) {
+        if (ASSISTANT_NAMES.some(function(n) { return nameUpper.includes(n); })) {
           lastAssistantReviewedIndex = i;
         }
       }
@@ -162,26 +169,94 @@
     const lastAssistantReviewed = lastAssistantReviewedIndex !== -1 ? entries[lastAssistantReviewedIndex] : null;
     const afterAssistantReviewed = lastAssistantReviewed ? entries[lastAssistantReviewedIndex + 1] || null : null;
 
-    const stage3KeyPresent = lastAssistantReviewed
-      && lastAssistantReviewed.remark.toLowerCase().includes(STAGE3_KEY_SENTENCE);
+    // --- Stage 3 key sentence check (negative-safe) ---
+    // Ensures "not been found to be in order" does NOT trigger Stage 3
+    const stage3KeyPresent = lastAssistantReviewed && (function() {
+      const remark = lastAssistantReviewed.remark.toLowerCase();
+      const idx = remark.indexOf(STAGE3_KEY_SENTENCE);
+      if (idx === -1) return false;
+      // Check the 25 characters immediately before the key sentence for negation
+      const preceding = remark.substring(Math.max(0, idx - 25), idx);
+      return !(/\bnot\b/.test(preceding));
+    })();
 
+    // --- Check STAGE 3 (assistant confirmed in order) ---
     const stage3 = stage3KeyPresent
       && afterAssistantReviewed
       && afterAssistantReviewed.employeeName.toUpperCase().includes(STAGE2_NEXT_NAME)
       && afterAssistantReviewed.actionTaken.trim() === STAGE2_NEXT_ACTION
       && afterAssistantReviewed.remark.trim() === STAGE2_NEXT_REMARK;
 
+    // --- Check STAGE 3B (assistant found issue → send back to DO) ---
+    // Trigger: last assistant reviewed + remark NOT in order
+    //          + next = AMIT KUMAR SINGH (Pending Review, N/A)
+    //          + office is NOT RO CHANDIGARH
+    const stage3bAssistantIssue = lastAssistantReviewed
+      && !stage3KeyPresent   // key sentence absent OR negated
+      && lastAssistantReviewed.remark.trim() !== ''   // assistant did leave a substantive remark
+      && afterAssistantReviewed
+      && afterAssistantReviewed.employeeName.toUpperCase().includes(STAGE2_NEXT_NAME)
+      && afterAssistantReviewed.actionTaken.trim() === STAGE2_NEXT_ACTION
+      && afterAssistantReviewed.remark.trim() === STAGE2_NEXT_REMARK;
+
+    // --- Find the DO Manager (entry just before the AGM with non-N/A remark) ---
+    // Used by Stage 3B (target to send back to) and Stage 3C (identify who sent it back)
+    let agmIndex = -1;
+    for (let i = 0; i < entries.length; i++) {
+      if (entries[i].designation.trim() === AGM_DESIGNATION
+          && entries[i].remark.trim() !== 'N/A'
+          && entries[i].remark.trim() !== '') {
+        agmIndex = i;
+        break;  // there is only one such AGM entry — stop at first match
+      }
+    }
+    const doManagerEntry = agmIndex > 0 ? entries[agmIndex - 1] : null;
+
+    // --- Check STAGE 3C (DO has reprocessed → send to assistant again) ---
+    // Trigger: last substantive entry before AMIT KUMAR SINGH (Pending Review, N/A)
+    //          is the DO Manager identified above (same person we sent 3B to)
+    // Find the last entry before the final AMIT Pending Review + N/A block
+    let lastAmitPendingIndex = -1;
+    for (let i = 0; i < entries.length; i++) {
+      if (entries[i].employeeName.toUpperCase().includes(STAGE2_NEXT_NAME)
+          && entries[i].actionTaken.trim() === STAGE2_NEXT_ACTION
+          && entries[i].remark.trim() === STAGE2_NEXT_REMARK) {
+        lastAmitPendingIndex = i;
+      }
+    }
+    const entryBeforeAmitPending = lastAmitPendingIndex > 0 ? entries[lastAmitPendingIndex - 1] : null;
+
+    const stage3c = doManagerEntry
+      && entryBeforeAmitPending
+      && entryBeforeAmitPending.employeeName.toUpperCase().trim()
+           === doManagerEntry.employeeName.toUpperCase().trim()
+      && lastAmitPendingIndex !== -1
+      // Make sure we are not in Stage 2 or Stage 3 already (those take priority)
+      && !stage2
+      && !stage3
+      && !stage3bAssistantIssue;
+
     // Read Cadre and Office early so we can log them regardless of stage match
     const cadreValue  = getFieldValue('cadre');
     const officeValue = getFieldValue('office');
     const isRoChandigarh = officeValue.trim().replace(/\s+/g, ' ').toUpperCase() === 'RO CHANDIGARH';
 
+    // Stage 3B only applies when office is NOT RO CHANDIGARH
+    const stage3b = stage3bAssistantIssue && !isRoChandigarh;
+
     console.log('[FCI NOC Assistant] Office read from page: "' + officeValue + '"');
     console.log('[FCI NOC Assistant] Cadre read from page:  "' + cadreValue + '"');
     console.log('[FCI NOC Assistant] isRoChandigarh: ' + isRoChandigarh);
-    console.log('[FCI NOC Assistant] Stage 3 (Fill Reviewer Remarks): ' + (stage3 ? 'MATCH' : 'no match'));
-    console.log('[FCI NOC Assistant] Stage 1 (Send to ABHIMANYU SWAMI): ' + (stage1 ? 'MATCH' : 'no match'));
-    console.log('[FCI NOC Assistant] Stage 2 (Send to Assistant):        ' + (stage2 ? 'MATCH' : 'no match'));
+    console.log('[FCI NOC Assistant] Stage 3  (Fill Reviewer Remarks):      ' + (stage3  ? 'MATCH' : 'no match'));
+    console.log('[FCI NOC Assistant] Stage 3B (Send back to DO):             ' + (stage3b ? 'MATCH' : 'no match'));
+    console.log('[FCI NOC Assistant] Stage 3C (Re-send to assistant):        ' + (stage3c ? 'MATCH' : 'no match'));
+    console.log('[FCI NOC Assistant] Stage 2  (Send to Assistant):           ' + (stage2  ? 'MATCH' : 'no match'));
+    console.log('[FCI NOC Assistant] Stage 1  (Send to ABHIMANYU SWAMI):     ' + (stage1  ? 'MATCH' : 'no match'));
+    if (doManagerEntry) {
+      console.log('[FCI NOC Assistant] DO Manager identified: "' + doManagerEntry.employeeName + '" (S.No. ' + doManagerEntry.slNo + ')');
+    }
+
+    // --- Stage priority: 3 → 3B → 3C → 2 → 1B → 1 ---
 
     if (stage3) {
       // Stage 3: Assistant has confirmed request is in order → fill Reviewer Remarks directly
@@ -190,6 +265,47 @@
       highlightTriggerRow(tbody, assistantName, 'Reviewed');
       const remarkToFill = isRoChandigarh ? STAGE3_REMARK_RO : STAGE3_REMARK_NON_RO;
       setTimeout(function() { fillReviewerRemarks(remarkToFill); }, 2000);
+
+    } else if (stage3b) {
+      // Stage 3B: Assistant found issue → send request back to DO Manager
+      if (!doManagerEntry) {
+        console.warn('[FCI NOC Assistant] Stage 3B: Could not identify DO Manager. No action taken.');
+        return;
+      }
+      const assistantSlNo   = lastAssistantReviewed.slNo;
+      const assistantName   = lastAssistantReviewed.employeeName;
+      const doManagerName   = doManagerEntry.employeeName;
+      const stage3bRemark   = 'Reference may be made to the observations recorded during examination of the request at Sl. No. ' + assistantSlNo + '. Required necessary clarifications and/or supporting documents, as indicated, may kindly be furnished for further processing.';
+
+      console.log('[FCI NOC Assistant] Stage 3B: Issue found by ' + assistantName + ' (S.No. ' + assistantSlNo + '). Sending back to DO Manager: ' + doManagerName);
+      highlightTriggerRow(tbody, assistantName, 'Reviewed');
+
+      sessionStorage.setItem('fci_noc_stage', '3b');
+      sessionStorage.setItem('fci_noc_office_type', OFFICE_TYPE_DO);
+      sessionStorage.setItem('fci_noc_target_office', officeValue.trim().replace(/\s+/g, ' ').toUpperCase());
+      sessionStorage.setItem('fci_noc_target_employee_name', doManagerName);
+      sessionStorage.setItem('fci_noc_assistant_remark', stage3bRemark);
+      // Clear assistant emp fields — Stage 3B selects by name search, not emp number
+      sessionStorage.removeItem('fci_noc_assistant_emp');
+      sessionStorage.removeItem('fci_noc_assistant_name');
+      setTimeout(clickAddReviewer, 2000);
+
+    } else if (stage3c) {
+      // Stage 3C: DO has reprocessed and sent back → re-send to assistant for rechecking
+      const assistant = decideAssistant();
+      if (!assistant) return;
+      console.log('[FCI NOC Assistant] Stage 3C: DO Manager "' + doManagerEntry.employeeName + '" has sent back. Re-routing to ' + assistant.name + '...');
+      highlightTriggerRow(tbody, doManagerEntry.employeeName, entryBeforeAmitPending.actionTaken);
+
+      sessionStorage.setItem('fci_noc_stage', '3c');
+      sessionStorage.setItem('fci_noc_office_type', OFFICE_TYPE_RO);
+      sessionStorage.setItem('fci_noc_assistant_emp', assistant.empNo);
+      sessionStorage.setItem('fci_noc_assistant_name', assistant.name);
+      sessionStorage.setItem('fci_noc_assistant_remark', ASSISTANT_REMARK);
+      sessionStorage.removeItem('fci_noc_target_office');
+      sessionStorage.removeItem('fci_noc_target_employee_name');
+      setTimeout(clickAddReviewer, 2000);
+
     } else if (stage2) {
       // Stage 2: Last Reviewed = ABHIMANYU SWAMI, next = AMIT KUMAR SINGH (Pending Review, N/A)
       const assistant = decideAssistant();
@@ -197,11 +313,15 @@
         console.log('[FCI NOC Assistant] Stage 2: Routing to ' + assistant.name + ' (' + assistant.empNo + ')');
         highlightTriggerRow(tbody, 'ABHIMANYU SWAMI', 'Reviewed');
         sessionStorage.setItem('fci_noc_stage', '2');
+        sessionStorage.setItem('fci_noc_office_type', OFFICE_TYPE_RO);
         sessionStorage.setItem('fci_noc_assistant_emp', assistant.empNo);
         sessionStorage.setItem('fci_noc_assistant_name', assistant.name);
         sessionStorage.setItem('fci_noc_assistant_remark', ASSISTANT_REMARK);
-        setTimeout(clickAddReviewer, 2000); // short delay so highlight is visible before navigating
+        sessionStorage.removeItem('fci_noc_target_office');
+        sessionStorage.removeItem('fci_noc_target_employee_name');
+        setTimeout(clickAddReviewer, 2000);
       }
+
     } else if (stage1 && isRoChandigarh) {
       // Stage 1B: Same trigger as Stage 1 but Office = RO CHANDIGARH
       const assistant = decideAssistant();
@@ -209,20 +329,28 @@
         console.log('[FCI NOC Assistant] Stage 1B (RO CHANDIGARH): Routing to ' + assistant.name + ' (' + assistant.empNo + ')');
         highlightTriggerRow(tbody, 'MAYURESH KUMAR', 'Dispatched');
         sessionStorage.setItem('fci_noc_stage', '1b');
+        sessionStorage.setItem('fci_noc_office_type', OFFICE_TYPE_RO);
         sessionStorage.setItem('fci_noc_assistant_emp', assistant.empNo);
         sessionStorage.setItem('fci_noc_assistant_name', assistant.name);
         sessionStorage.setItem('fci_noc_assistant_remark', PERFORMA_REMARK);
+        sessionStorage.removeItem('fci_noc_target_office');
+        sessionStorage.removeItem('fci_noc_target_employee_name');
         setTimeout(clickAddReviewer, 2000);
       }
+
     } else if (stage1) {
       // Stage 1: Office is not RO CHANDIGARH — send to ABHIMANYU SWAMI for vigilance clearance
       console.log('[FCI NOC Assistant] Stage 1: Routing to ABHIMANYU SWAMI...');
       highlightTriggerRow(tbody, 'MAYURESH KUMAR', 'Dispatched');
       sessionStorage.setItem('fci_noc_stage', '1');
+      sessionStorage.setItem('fci_noc_office_type', OFFICE_TYPE_RO);
       sessionStorage.removeItem('fci_noc_assistant_emp');
       sessionStorage.removeItem('fci_noc_assistant_name');
       sessionStorage.removeItem('fci_noc_assistant_remark');
+      sessionStorage.removeItem('fci_noc_target_office');
+      sessionStorage.removeItem('fci_noc_target_employee_name');
       setTimeout(clickAddReviewer, 2000);
+
     } else {
       console.log('[FCI NOC Assistant] No matching stage found. No action taken.');
     }
@@ -238,7 +366,7 @@
       if (cells.length === 8) {
         const action = cells[3].textContent.trim();
         const name   = cells[4].textContent.trim().toUpperCase();
-        if (action === targetAction && name.includes(targetName)) {
+        if (action === targetAction && name.includes(targetName.toUpperCase())) {
           targetRow = row; // keep looping to find the last match
         }
       }
