@@ -4,18 +4,13 @@
 
 (function () {
 
-  // --- FIXED CONFIGURATION (same for all stages) ---
-  const OFFICE_TYPE_VALUE  = '4';            // value="4" = "RO"
-  const TARGET_OFFICE_NAME = 'RO CHANDIGARH';
-
   // --- STAGE 1 defaults (used when no sessionStorage override is present) ---
   const STAGE1_EMP_NUMBER = '276695';        // ABHIMANYU SWAMI
   const STAGE1_REASON     = 'With respect to the application made by the employee, kindly provide the vigilance clearance for the purpose of NOC for other exam.';
+  const TARGET_RO_OFFICE  = 'RO CHANDIGARH'; // used for all RO-targeted stages
   // -------------------------------------------------------------------------
 
   // SAFETY CHECK: Only activate for NOC For Other Examination requests.
-  // The Add Reviewer page shows the Request ID at the top (e.g. "ID NOE131595").
-  // If it does not start with NOE, this is a different request type — do nothing.
   function getRequestId() {
     const bodyText = document.body.innerText || '';
     const match = bodyText.match(/\bNOE\d+\b/i);
@@ -30,7 +25,6 @@
   console.log('[FCI NOC Assistant] Request ID confirmed on Add Reviewer page: ' + requestId);
 
   // Check if this navigation was triggered by the extension.
-  // If not (i.e. you opened Add Reviewer manually), do nothing.
   const triggered = sessionStorage.getItem('fci_noc_triggered');
   if (triggered !== 'yes') {
     console.log('[FCI NOC Assistant] Add Reviewer page opened manually — extension will NOT auto-fill.');
@@ -41,13 +35,25 @@
   sessionStorage.removeItem('fci_noc_triggered');
 
   // Read routing decision from sessionStorage (set by content.js)
-  const stage          = sessionStorage.getItem('fci_noc_stage') || '1';
-  const empNumber      = sessionStorage.getItem('fci_noc_assistant_emp')    || STAGE1_EMP_NUMBER;
-  const assistantName  = sessionStorage.getItem('fci_noc_assistant_name')   || 'ABHIMANYU SWAMI';
-  const reasonText     = sessionStorage.getItem('fci_noc_assistant_remark') || STAGE1_REASON;
+  const stage              = sessionStorage.getItem('fci_noc_stage') || '1';
+  const officeTypeValue    = sessionStorage.getItem('fci_noc_office_type') || '4';  // default RO
+  const empNumber          = sessionStorage.getItem('fci_noc_assistant_emp')    || STAGE1_EMP_NUMBER;
+  const assistantName      = sessionStorage.getItem('fci_noc_assistant_name')   || 'ABHIMANYU SWAMI';
+  const reasonText         = sessionStorage.getItem('fci_noc_assistant_remark') || STAGE1_REASON;
+
+  // Stage 3B specific: target office and employee name (selected by name, not emp number)
+  const targetOfficeName      = sessionStorage.getItem('fci_noc_target_office')         || TARGET_RO_OFFICE;
+  const targetEmployeeName    = sessionStorage.getItem('fci_noc_target_employee_name')  || '';
+
+  // For Stage 3B we match employee by name; for all other stages by emp number
+  const isStage3B = (stage === '3b');
 
   console.log('[FCI NOC Assistant] Add Reviewer page — Stage: ' + stage);
-  console.log('[FCI NOC Assistant] Routing to: ' + assistantName + ' (' + empNumber + ')');
+  if (isStage3B) {
+    console.log('[FCI NOC Assistant] Stage 3B: Routing to DO — Office: ' + targetOfficeName + ', Employee: ' + targetEmployeeName);
+  } else {
+    console.log('[FCI NOC Assistant] Routing to: ' + assistantName + ' (' + empNumber + ')');
+  }
   console.log('[FCI NOC Assistant] Reason: ' + reasonText);
 
   // Navigate to last page of action history table first
@@ -62,7 +68,6 @@
     const interval = setInterval(function () {
       attempts++;
 
-      // Try multiple selectors to find pagination — different DataTables versions use different markup
       const paginateDivs = document.querySelectorAll('[id$="_paginate"], .dataTables_paginate, .pagination');
       let paginateDiv = null;
       for (let div of paginateDivs) {
@@ -78,7 +83,6 @@
         return;
       }
 
-      // Find all numbered page links — try both <a> and <span> tags
       const pageLinks = paginateDiv.querySelectorAll('a, span');
       let highestNum = 0;
       let highestLink = null;
@@ -126,25 +130,33 @@
       console.log('[FCI NOC Assistant] Scrolled form fields into view.');
     }
 
-    console.log('[FCI NOC Assistant] Step 1: Selecting Office Type = "RO"...');
-    officeTypeSelect.value = OFFICE_TYPE_VALUE;
-    triggerSelect2(officeTypeSelect, OFFICE_TYPE_VALUE);
+    console.log('[FCI NOC Assistant] Step 1: Selecting Office Type (value=' + officeTypeValue + ')...');
+    officeTypeSelect.value = officeTypeValue;
+    triggerSelect2(officeTypeSelect, officeTypeValue);
     officeTypeSelect.dispatchEvent(new Event('change', { bubbles: true }));
 
     console.log('[FCI NOC Assistant] Step 1 done. Waiting for Office dropdown...');
 
-    waitForDropdownAndSelect('filter_office', TARGET_OFFICE_NAME, function (officeValue) {
-      console.log('[FCI NOC Assistant] Step 2: Office selected. Waiting for Employee list...');
-
-      waitForDropdownAndSelect('filter_employee', empNumber, function (employeeValue) {
-        console.log('[FCI NOC Assistant] Step 3: Employee selected.');
-
-        const employeeSelect = document.getElementById('filter_employee');
-        triggerSelect2(employeeSelect, employeeValue);
-
-        setTimeout(fillReason, 1000);
+    if (isStage3B) {
+      // Stage 3B: select target DO office by name, then select employee by name search
+      waitForDropdownAndSelect('filter_office', targetOfficeName, function (officeValue) {
+        console.log('[FCI NOC Assistant] Step 2 (Stage 3B): Office selected. Waiting for Employee list...');
+        waitForDropdownAndSelectByName('filter_employee', targetEmployeeName, function () {
+          setTimeout(fillReason, 1000);
+        });
       });
-    });
+    } else {
+      // All other stages: select RO CHANDIGARH as office, then select employee by emp number
+      waitForDropdownAndSelect('filter_office', TARGET_RO_OFFICE, function (officeValue) {
+        console.log('[FCI NOC Assistant] Step 2: Office selected. Waiting for Employee list...');
+        waitForDropdownAndSelect('filter_employee', empNumber, function (employeeValue) {
+          console.log('[FCI NOC Assistant] Step 3: Employee selected.');
+          const employeeSelect = document.getElementById('filter_employee');
+          triggerSelect2(employeeSelect, employeeValue);
+          setTimeout(fillReason, 1000);
+        });
+      });
+    }
   }
 
   function fillReason() {
@@ -182,7 +194,7 @@
     script.remove();
   }
 
-  // --- HELPER: Wait for dropdown to populate then select by matching text containing targetValue ---
+  // --- HELPER: Wait for dropdown to populate then select by option text containing targetValue ---
   function waitForDropdownAndSelect(selectId, targetValue, callback) {
     let attempts = 0;
     const interval = setInterval(function () {
@@ -210,6 +222,48 @@
       } else if (attempts >= 30) {
         clearInterval(interval);
         console.warn('[FCI NOC Assistant] Could not find "' + targetValue + '" in #' + selectId + ' after 15 seconds.');
+        console.warn('[FCI NOC Assistant] Available options:');
+        const selectEl2 = document.getElementById(selectId);
+        if (selectEl2) {
+          selectEl2.querySelectorAll('option').forEach(o => {
+            console.warn('  "' + o.textContent.trim() + '"');
+          });
+        }
+      }
+    }, 500);
+  }
+
+  // --- HELPER: Wait for employee dropdown then select by matching employee name (for Stage 3B) ---
+  // The employee list on the DO page shows names, not emp numbers.
+  // We match by checking if the option text contains the target name (case-insensitive).
+  function waitForDropdownAndSelectByName(selectId, targetName, callback) {
+    const targetUpper = targetName.trim().toUpperCase();
+    let attempts = 0;
+    const interval = setInterval(function () {
+      attempts++;
+      const selectEl = document.getElementById(selectId);
+      const options  = selectEl ? selectEl.querySelectorAll('option') : [];
+
+      let matchedOption = null;
+      for (let opt of options) {
+        if (opt.textContent.trim().toUpperCase().includes(targetUpper)) {
+          matchedOption = opt;
+          break;
+        }
+      }
+
+      if (matchedOption) {
+        clearInterval(interval);
+        const value = matchedOption.value;
+        selectEl.value = value;
+        triggerSelect2(selectEl, value);
+        selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+        console.log('[FCI NOC Assistant] Selected employee "' + targetName + '" by name in #' + selectId);
+        callback(value);
+
+      } else if (attempts >= 30) {
+        clearInterval(interval);
+        console.warn('[FCI NOC Assistant] Could not find employee "' + targetName + '" by name in #' + selectId + ' after 15 seconds.');
         console.warn('[FCI NOC Assistant] Available options:');
         const selectEl2 = document.getElementById(selectId);
         if (selectEl2) {
