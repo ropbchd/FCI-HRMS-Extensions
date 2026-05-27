@@ -328,7 +328,7 @@
 
   // --- Read Passport Application type from Review page ---
   function getPassportApplicationType() {
-    // Try label[for] pattern
+    // Try label[for] pattern or label text matching
     let val = getFieldValue('passport_application');
     if (val) return val;
 
@@ -343,9 +343,10 @@
 
   // --- Read Employee Name from Review page ---
   function getEmployeeNameFromPage() {
-    // Try label[for="employee_name"]
+    // Try label[for="employee_name"] or label text matching
     let val = getFieldValue('employee_name');
     if (val) return val;
+
     // Fallback: label text match
     const listItems = document.querySelectorAll('li');
     for (let li of listItems) {
@@ -359,14 +360,24 @@
     return '';
   }
 
-  // --- Read field value by label for-attribute ---
+  // --- Read field value by label for-attribute OR label text content ---
   function getFieldValue(fieldName) {
     const listItems = document.querySelectorAll('li');
     for (let li of listItems) {
       const label = li.querySelector('label');
       const span  = li.querySelector('span');
       if (!label || !span) continue;
+
+      // Method 1: match by for attribute (original pattern)
       if (label.getAttribute('for') === fieldName) {
+        return span.textContent.trim();
+      }
+
+      // Method 2: match by label text content (fallback for live portal)
+      // Normalize: lowercase, collapse whitespace, replace underscores with spaces
+      const labelText = label.textContent.trim().toLowerCase().replace(/\s+/g, ' ');
+      const targetText = fieldName.toLowerCase().replace(/_/g, ' ').trim();
+      if (labelText === targetText || labelText.includes(targetText)) {
         return span.textContent.trim();
       }
     }
