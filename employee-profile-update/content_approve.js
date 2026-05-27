@@ -33,7 +33,7 @@
     },
     {
       label: 'Approved — record updated as per personal file documents.',
-      full:  'Approved and record updated as per request based on the documents available in the personal file of the officer concerned.'
+      full:  'Approved and record updated as per request based on the documents available in the personal file of the official concerned.'
     }
   ];
 
