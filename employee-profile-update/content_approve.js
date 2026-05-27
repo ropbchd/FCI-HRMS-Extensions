@@ -44,7 +44,7 @@
     },
     {
       label: 'Apply through appropriate channel — module cannot process this.',
-      full:  'The officer may be asked to apply though appropriate channel as this request cannot be processed by this module.'
+      full:  'The official is requested to apply though appropriate channel as this request cannot be processed through this module.'
     },
     {
       label: 'Kindly provide supporting documents.',
