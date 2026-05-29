@@ -1,19 +1,12 @@
 // FCI Employee Profile Update Assistant - Approve Page Script
 // Runs on: /corehr/transaction/profile-request/approve/*
 //
-// On page load (automatic):
-//   1. Verifies Request ID starts with RHR
-//   2. Clicks the "Update" tab
-//   3. Opens the Attachment "view" link in a new tab and stores the tab ID
-//
-// Floating panel:
-//   - 3 Approve remarks + 3 Reject remarks
-//   - Click a remark → previews it in the panel
-//   - "Fill remark" button → pushes text into #dop_member_comment on the page
-//   - Panel is draggable
-//
-// After Approve/Reject + OK confirmation:
-//   - Page navigates back to listing → content_list.js closes the attachment tab
+// Fix v1.1:
+//   - Update tab: now selected via data-name="req_history" (not text search)
+//     Tab click uses window.location to navigate — same as the site's own JS
+//   - Attachment: opens in background (window.open with focus returned to this tab)
+//   - Attachment opens ONCE per request using sessionStorage flag keyed to requestId
+//     Switching tabs no longer re-triggers attachment open
 
 (function () {
 
@@ -33,7 +26,7 @@
     },
     {
       label: 'Approved — record updated as per personal file documents.',
-      full:  'Approved and record updated as per request based on the documents available in the personal file of the official concerned.'
+      full:  'Approved and record updated as per request based on the documents available in the personal file of the officer concerned.'
     }
   ];
 
@@ -44,7 +37,7 @@
     },
     {
       label: 'Apply through appropriate channel — module cannot process this.',
-      full:  'The official is requested to apply though appropriate channel as this request cannot be processed through this module.'
+      full:  'The officer may be asked to apply though appropriate channel as this request cannot be processed by this module.'
     },
     {
       label: 'Kindly provide supporting documents.',
@@ -55,7 +48,6 @@
   // ─── SAFETY CHECK ───────────────────────────────────────────────────────────
 
   function getRequestId() {
-    // Try <li><label>Request ID</label><span>RHR...</span></li> pattern
     const listItems = document.querySelectorAll('li');
     for (let li of listItems) {
       const label = li.querySelector('label');
@@ -65,7 +57,6 @@
         return span.textContent.trim().toUpperCase();
       }
     }
-    // Fallback: scan full body text
     const match = (document.body.innerText || '').match(/\bRHR\d+\b/i);
     return match ? match[0].toUpperCase() : null;
   }
@@ -81,26 +72,35 @@
   console.log(LOG + ' Request ID confirmed: ' + requestId + '. Activating...');
 
   // ─── STEP 1: CLICK "UPDATE" TAB ─────────────────────────────────────────────
+  // The Update tab <a> has class="change-tab" and data-name="req_history".
+  // All tabs share the same href (the page URL with ?tab=req_history).
+  // The site's own JS intercepts the click on .change-tab to load content via AJAX.
+  // We dispatch a real click on the correct <a> element.
 
   function clickUpdateTab() {
-    // The Update tab is a link/button whose visible text is "Update"
-    const allTabs = document.querySelectorAll('a, button, li');
-    for (let el of allTabs) {
-      if (el.textContent.trim() === 'Update') {
-        console.log(LOG + ' Clicking "Update" tab...');
-        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-        console.log(LOG + ' "Update" tab clicked.');
-        return;
-      }
+    const updateTab = document.querySelector('a.change-tab[data-name="req_history"]');
+    if (updateTab) {
+      console.log(LOG + ' Clicking "Update" tab via data-name="req_history"...');
+      updateTab.click();
+      console.log(LOG + ' "Update" tab clicked.');
+    } else {
+      console.warn(LOG + ' Update tab not found. Retrying in 1s...');
+      setTimeout(clickUpdateTab, 1000);
     }
-    console.warn(LOG + ' "Update" tab not found. Retrying in 1.5s...');
-    setTimeout(clickUpdateTab, 1500);
   }
 
-  // ─── STEP 2: OPEN ATTACHMENT "VIEW" LINK ────────────────────────────────────
+  // ─── STEP 2: OPEN ATTACHMENT "VIEW" LINK IN BACKGROUND ──────────────────────
+  // Guard: only open once per requestId (stored in sessionStorage).
+  // After opening, immediately refocus this tab so user stays on the approve page.
 
   function openAttachment() {
-    // The attachment "view" link is inside <li><label>Attachment </label><span><a ...>view</a></span></li>
+    // Check if already opened for this request
+    const flagKey = 'epu_attachment_opened_' + requestId;
+    if (sessionStorage.getItem(flagKey)) {
+      console.log(LOG + ' Attachment already opened for ' + requestId + '. Skipping.');
+      return;
+    }
+
     const listItems = document.querySelectorAll('li');
     for (let li of listItems) {
       const label = li.querySelector('label');
@@ -108,15 +108,24 @@
       if (label.textContent.trim().toLowerCase().startsWith('attachment')) {
         const link = li.querySelector('a');
         if (link && link.href) {
-          console.log(LOG + ' Opening attachment in new tab: ' + link.href);
-          const attachWin = window.open(link.href, '_blank');
-          // Try to store the tab ID via background script for later closing
+          console.log(LOG + ' Opening attachment in background tab: ' + link.href);
+
+          // Open in new tab
+          window.open(link.href, '_blank');
+
+          // Immediately return focus to this (approve) tab
+          window.focus();
+
+          // Store tab ID for later closing
           chrome.runtime.sendMessage({ action: 'getLastTabId' }, function (response) {
             if (response && response.tabId) {
               sessionStorage.setItem('epu_attachment_tab_id', response.tabId);
               console.log(LOG + ' Attachment tab ID stored: ' + response.tabId);
             }
           });
+
+          // Mark as opened for this request so tab switching doesn't re-open it
+          sessionStorage.setItem(flagKey, '1');
           return;
         }
       }
@@ -127,7 +136,7 @@
   // ─── STEP 3: INJECT FLOATING PANEL ──────────────────────────────────────────
 
   function injectPanel() {
-    if (document.getElementById('epu-panel')) return; // already injected
+    if (document.getElementById('epu-panel')) return;
 
     const panel = document.createElement('div');
     panel.id = 'epu-panel';
@@ -135,23 +144,18 @@
     applyPanelStyles(panel);
     document.body.appendChild(panel);
 
-    // Drag behaviour
     makeDraggable(panel);
 
-    // Wire up remark buttons
     panel.querySelectorAll('.epu-remark-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        // Deselect all
         panel.querySelectorAll('.epu-remark-btn').forEach(function (b) {
           b.classList.remove('epu-selected-approve', 'epu-selected-reject');
         });
         btn.classList.add(btn.dataset.type === 'approve' ? 'epu-selected-approve' : 'epu-selected-reject');
 
-        // Show full text in preview
         panel.querySelector('#epu-preview').textContent = btn.dataset.full;
         panel.querySelector('#epu-preview').style.color = '#1a1a1a';
 
-        // Style fill button
         const fillBtn = panel.querySelector('#epu-fill-btn');
         fillBtn.disabled = false;
         fillBtn.style.opacity = '1';
@@ -161,7 +165,6 @@
       });
     });
 
-    // Fill remark button
     panel.querySelector('#epu-fill-btn').addEventListener('click', function () {
       const remarkText = this.dataset.remark;
       if (!remarkText) return;
@@ -173,14 +176,14 @@
 
   function buildPanelHTML() {
     let approveHTML = '';
-    APPROVE_REMARKS.forEach(function (r, i) {
+    APPROVE_REMARKS.forEach(function (r) {
       approveHTML += '<button class="epu-remark-btn epu-approve-btn" ' +
         'data-type="approve" data-full="' + escAttr(r.full) + '">' +
         escHTML(r.label) + '</button>';
     });
 
     let rejectHTML = '';
-    REJECT_REMARKS.forEach(function (r, i) {
+    REJECT_REMARKS.forEach(function (r) {
       rejectHTML += '<button class="epu-remark-btn epu-reject-btn" ' +
         'data-type="reject" data-full="' + escAttr(r.full) + '">' +
         escHTML(r.label) + '</button>';
@@ -202,7 +205,6 @@
   }
 
   function applyPanelStyles(panel) {
-    // Inject stylesheet
     if (!document.getElementById('epu-style')) {
       const style = document.createElement('style');
       style.id = 'epu-style';
@@ -229,17 +231,8 @@
           margin-bottom: 10px;
           cursor: move;
         }
-        #epu-title {
-          font-weight: 600;
-          font-size: 13px;
-          color: #333;
-        }
-        #epu-drag-hint {
-          color: #aaa;
-          font-size: 18px;
-          cursor: move;
-          line-height: 1;
-        }
+        #epu-title { font-weight: 600; font-size: 13px; color: #333; }
+        #epu-drag-hint { color: #aaa; font-size: 18px; cursor: move; line-height: 1; }
         .epu-section-label {
           font-size: 11px;
           font-weight: 600;
@@ -268,11 +261,7 @@
         .epu-reject-btn:hover   { border-color: #993C1D; background: #FAECE7; color: #4A1B0C; }
         .epu-selected-approve   { border-color: #0F6E56 !important; background: #E1F5EE !important; color: #085041 !important; }
         .epu-selected-reject    { border-color: #993C1D !important; background: #FAECE7 !important; color: #4A1B0C !important; }
-        .epu-divider {
-          border: none;
-          border-top: 1px solid #eee;
-          margin: 10px 0;
-        }
+        .epu-divider { border: none; border-top: 1px solid #eee; margin: 10px 0; }
         #epu-preview {
           background: #f7f7f7;
           border-radius: 6px;
@@ -307,39 +296,32 @@
   function fillRemark(remarkText) {
     const textarea = document.getElementById('dop_member_comment');
     if (!textarea) {
-      console.warn(LOG + ' #dop_member_comment not found. Scrolling down and retrying...');
       window.scrollTo(0, document.body.scrollHeight);
       setTimeout(function () { fillRemark(remarkText); }, 1000);
       return;
     }
-
-    // Fill the textarea
     textarea.value = remarkText;
     textarea.dispatchEvent(new Event('input',  { bubbles: true }));
     textarea.dispatchEvent(new Event('change', { bubbles: true }));
     textarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-    console.log(LOG + ' Approver Remarks filled: "' + remarkText.substring(0, 60) + '..."');
-    console.log(LOG + ' *** Please verify the remark and filled fields, then click Approve or Reject. ***');
+    console.log(LOG + ' Approver Remarks filled.');
   }
 
   // ─── DRAG HELPER ────────────────────────────────────────────────────────────
 
   function makeDraggable(el) {
     let startX, startY, startLeft, startTop;
-
     const header = el.querySelector('#epu-header');
     header.addEventListener('mousedown', function (e) {
-      startX   = e.clientX;
-      startY   = e.clientY;
+      startX = e.clientX;
+      startY = e.clientY;
       const rect = el.getBoundingClientRect();
-      startLeft  = rect.left;
-      startTop   = rect.top;
-
+      startLeft = rect.left;
+      startTop  = rect.top;
       function onMove(e) {
-        el.style.right  = 'auto';
-        el.style.left   = (startLeft + e.clientX - startX) + 'px';
-        el.style.top    = (startTop  + e.clientY - startY) + 'px';
+        el.style.right = 'auto';
+        el.style.left  = (startLeft + e.clientX - startX) + 'px';
+        el.style.top   = (startTop  + e.clientY - startY) + 'px';
       }
       function onUp() {
         document.removeEventListener('mousemove', onMove);
@@ -361,17 +343,8 @@
 
   // ─── MAIN SEQUENCE ──────────────────────────────────────────────────────────
 
-  // Wait for page to settle, then run all steps
-  setTimeout(function () {
-    clickUpdateTab();
-  }, 1500);
-
-  setTimeout(function () {
-    openAttachment();
-  }, 2000);
-
-  setTimeout(function () {
-    injectPanel();
-  }, 2500);
+  setTimeout(function () { clickUpdateTab();  }, 1500);
+  setTimeout(function () { openAttachment();  }, 2000);
+  setTimeout(function () { injectPanel();     }, 2500);
 
 })();
