@@ -59,8 +59,10 @@
   // Navigate to last page of action history table first
   setTimeout(goToLastPage, 2500);
 
-  // Start filling the form — delayed to allow last page to load first
-  setTimeout(startAutomation, 4000);
+  // Start filling the form.
+  // Stage 3B gets a longer delay (6s vs 4s) because after selecting Office Type = DO,
+  // the DO office list takes longer to load via AJAX than the RO office list does.
+  setTimeout(startAutomation, isStage3B ? 6000 : 4000);
 
   // Navigate to the last page of the action history table
   function goToLastPage() {
@@ -135,24 +137,26 @@
     triggerSelect2(officeTypeSelect, officeTypeValue);
     officeTypeSelect.dispatchEvent(new Event('change', { bubbles: true }));
 
-    console.log('[FCI NOC Assistant] Step 1 done. Waiting for Office dropdown...');
+    console.log('[FCI NOC Assistant] Step 1 done. Waiting for Office dropdown to populate...');
 
     if (isStage3B) {
-      // Stage 3B: Office dropdown is a live-search Select2 (AJAX-powered).
-      // Options are NOT pre-loaded in the DOM — they only appear after typing in the search box.
-      // Strategy: open the Select2 dropdown, simulate typing, wait for result to appear, click it.
-      // Portal live-search rejects the "DO " prefix — strip it before searching.
-      // e.g. "DO BHATINDA" → search "BHATINDA", result "DO BHATINDA" appears → click it.
-      const officeSearchTerm = targetOfficeName.replace(/^DO\s+/i, '').trim();
-      console.log('[FCI NOC Assistant] Step 2 (Stage 3B): Searching office "' + officeSearchTerm + '" (full name: ' + targetOfficeName + ')...');
-      select2LiveSearch('filter_office', officeSearchTerm, function () {
-        console.log('[FCI NOC Assistant] Step 2 (Stage 3B): Office selected. Waiting for Employee list...');
-        // Employee list for DO also uses live-search
-        select2LiveSearch('filter_employee', targetEmployeeName, function () {
-          console.log('[FCI NOC Assistant] Step 3 (Stage 3B): Employee selected.');
-          setTimeout(fillReason, 1000);
+      // Stage 3B: after selecting DO as Office Type, the DO offices load via AJAX.
+      // Wait an extra 2 seconds AFTER the change event before starting to poll,
+      // to give the portal time to fetch and populate the DO office list.
+      setTimeout(function () {
+        console.log('[FCI NOC Assistant] Step 2 (Stage 3B): Polling for office "' + targetOfficeName + '"...');
+        waitForDropdownAndSelect('filter_office', targetOfficeName, function () {
+          console.log('[FCI NOC Assistant] Step 2 (Stage 3B): Office selected. Waiting for Employee list...');
+          // Employee list: match by name (targetEmployeeName) since we don't store emp numbers for DO employees
+          waitForDropdownAndSelect('filter_employee', targetEmployeeName, function (employeeValue) {
+            console.log('[FCI NOC Assistant] Step 3 (Stage 3B): Employee selected.');
+            const employeeSelect = document.getElementById('filter_employee');
+            triggerSelect2(employeeSelect, employeeValue);
+            setTimeout(fillReason, 1000);
+          });
         });
-      });
+      }, 2000);
+
     } else {
       // All other stages: select RO CHANDIGARH as office, then select employee by emp number
       waitForDropdownAndSelect('filter_office', TARGET_RO_OFFICE, function (officeValue) {
@@ -227,9 +231,10 @@
         console.log('[FCI NOC Assistant] Selected "' + targetValue + '" in #' + selectId);
         callback(value);
 
-      } else if (attempts >= 30) {
+      } else if (attempts >= 40) {
+        // 40 attempts × 500ms = 20 seconds — longer timeout for DO office list
         clearInterval(interval);
-        console.warn('[FCI NOC Assistant] Could not find "' + targetValue + '" in #' + selectId + ' after 15 seconds.');
+        console.warn('[FCI NOC Assistant] Could not find "' + targetValue + '" in #' + selectId + ' after 20 seconds.');
         console.warn('[FCI NOC Assistant] Available options:');
         const selectEl2 = document.getElementById(selectId);
         if (selectEl2) {
@@ -237,73 +242,6 @@
             console.warn('  "' + o.textContent.trim() + '"');
           });
         }
-      }
-    }, 500);
-  }
-
-  // --- HELPER: Select2 live-search simulation (for Stage 3B DO office and employee) ---
-  // Used when a Select2 dropdown is AJAX-powered (options not pre-loaded in the DOM).
-  // Simulates: open dropdown → type search text → wait for result → click matching result.
-  function select2LiveSearch(selectId, searchText, callback) {
-    const targetUpper = searchText.trim().toUpperCase();
-    const script = document.createElement('script');
-
-    // Step 1: Open the Select2 dropdown and type in the search box via jQuery in MAIN world.
-    // The script tag runs in the page context where $ is available.
-    script.textContent = `
-      (function() {
-        var el = document.getElementById('${selectId}');
-        if (!el || typeof $ === 'undefined') return;
-        var s2 = $(el);
-        s2.select2('open');
-        // After a short delay, type the search text into the Select2 search input
-        setTimeout(function() {
-          var searchInput = document.querySelector('.select2-search__field');
-          if (searchInput) {
-            searchInput.value = '${searchText.replace(/'/g, "\\'")}';
-            searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-            searchInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
-          }
-        }, 400);
-      })();
-    `;
-    document.head.appendChild(script);
-    script.remove();
-
-    // Step 2: Poll for results to appear in the Select2 dropdown list, then click the match
-    let attempts = 0;
-    const interval = setInterval(function () {
-      attempts++;
-
-      // Select2 renders results in a <ul class="select2-results__options"> list
-      const resultItems = document.querySelectorAll('.select2-results__option');
-      let matchedItem = null;
-      for (let item of resultItems) {
-        const text = item.textContent.trim().toUpperCase();
-        if (text.includes(targetUpper)) {
-          matchedItem = item;
-          break;
-        }
-      }
-
-      if (matchedItem) {
-        clearInterval(interval);
-        console.log('[FCI NOC Assistant] Live-search result found for "' + searchText + '". Clicking...');
-        matchedItem.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-        matchedItem.click();
-
-        // After clicking, wait briefly then call the callback
-        setTimeout(function () {
-          callback();
-        }, 800);
-
-      } else if (attempts >= 30) {
-        clearInterval(interval);
-        console.warn('[FCI NOC Assistant] Live-search: no result found for "' + searchText + '" in #' + selectId + ' after 15 seconds.');
-        console.warn('[FCI NOC Assistant] Visible result items:');
-        document.querySelectorAll('.select2-results__option').forEach(function(item) {
-          console.warn('  "' + item.textContent.trim() + '"');
-        });
       }
     }, 500);
   }
