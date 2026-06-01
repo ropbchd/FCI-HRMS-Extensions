@@ -141,8 +141,11 @@
       // Stage 3B: Office dropdown is a live-search Select2 (AJAX-powered).
       // Options are NOT pre-loaded in the DOM — they only appear after typing in the search box.
       // Strategy: open the Select2 dropdown, simulate typing, wait for result to appear, click it.
-      console.log('[FCI NOC Assistant] Step 2 (Stage 3B): Using live-search to select office "' + targetOfficeName + '"...');
-      select2LiveSearch('filter_office', targetOfficeName, function () {
+      // Portal live-search rejects the "DO " prefix — strip it before searching.
+      // e.g. "DO BHATINDA" → search "BHATINDA", result "DO BHATINDA" appears → click it.
+      const officeSearchTerm = targetOfficeName.replace(/^DO\s+/i, '').trim();
+      console.log('[FCI NOC Assistant] Step 2 (Stage 3B): Searching office "' + officeSearchTerm + '" (full name: ' + targetOfficeName + ')...');
+      select2LiveSearch('filter_office', officeSearchTerm, function () {
         console.log('[FCI NOC Assistant] Step 2 (Stage 3B): Office selected. Waiting for Employee list...');
         // Employee list for DO also uses live-search
         select2LiveSearch('filter_employee', targetEmployeeName, function () {
