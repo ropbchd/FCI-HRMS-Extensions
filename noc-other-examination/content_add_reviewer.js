@@ -214,9 +214,14 @@
       const selectEl = document.getElementById(selectId);
       const options  = selectEl ? selectEl.querySelectorAll('option') : [];
 
+      // Normalise whitespace on both sides before comparing.
+      // The portal stores some office names with double spaces (e.g. "DO  BHATINDA")
+      // while our stored value has single spaces ("DO BHATINDA") — normalise both.
+      const targetNormalised = targetValue.trim().replace(/\s+/g, ' ');
       let matchedOption = null;
       for (let opt of options) {
-        if (opt.textContent.trim().includes(targetValue)) {
+        const optText = opt.textContent.trim().replace(/\s+/g, ' ');
+        if (optText.includes(targetNormalised)) {
           matchedOption = opt;
           break;
         }
