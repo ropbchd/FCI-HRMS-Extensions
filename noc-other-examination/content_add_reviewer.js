@@ -138,10 +138,15 @@
     console.log('[FCI NOC Assistant] Step 1 done. Waiting for Office dropdown...');
 
     if (isStage3B) {
-      // Stage 3B: select target DO office by name, then select employee by name search
-      waitForDropdownAndSelect('filter_office', targetOfficeName, function (officeValue) {
+      // Stage 3B: Office dropdown is a live-search Select2 (AJAX-powered).
+      // Options are NOT pre-loaded in the DOM — they only appear after typing in the search box.
+      // Strategy: open the Select2 dropdown, simulate typing, wait for result to appear, click it.
+      console.log('[FCI NOC Assistant] Step 2 (Stage 3B): Using live-search to select office "' + targetOfficeName + '"...');
+      select2LiveSearch('filter_office', targetOfficeName, function () {
         console.log('[FCI NOC Assistant] Step 2 (Stage 3B): Office selected. Waiting for Employee list...');
-        waitForDropdownAndSelectByName('filter_employee', targetEmployeeName, function () {
+        // Employee list for DO also uses live-search
+        select2LiveSearch('filter_employee', targetEmployeeName, function () {
+          console.log('[FCI NOC Assistant] Step 3 (Stage 3B): Employee selected.');
           setTimeout(fillReason, 1000);
         });
       });
@@ -233,44 +238,69 @@
     }, 500);
   }
 
-  // --- HELPER: Wait for employee dropdown then select by matching employee name (for Stage 3B) ---
-  // The employee list on the DO page shows names, not emp numbers.
-  // We match by checking if the option text contains the target name (case-insensitive).
-  function waitForDropdownAndSelectByName(selectId, targetName, callback) {
-    const targetUpper = targetName.trim().toUpperCase();
+  // --- HELPER: Select2 live-search simulation (for Stage 3B DO office and employee) ---
+  // Used when a Select2 dropdown is AJAX-powered (options not pre-loaded in the DOM).
+  // Simulates: open dropdown → type search text → wait for result → click matching result.
+  function select2LiveSearch(selectId, searchText, callback) {
+    const targetUpper = searchText.trim().toUpperCase();
+    const script = document.createElement('script');
+
+    // Step 1: Open the Select2 dropdown and type in the search box via jQuery in MAIN world.
+    // The script tag runs in the page context where $ is available.
+    script.textContent = `
+      (function() {
+        var el = document.getElementById('${selectId}');
+        if (!el || typeof $ === 'undefined') return;
+        var s2 = $(el);
+        s2.select2('open');
+        // After a short delay, type the search text into the Select2 search input
+        setTimeout(function() {
+          var searchInput = document.querySelector('.select2-search__field');
+          if (searchInput) {
+            searchInput.value = '${searchText.replace(/'/g, "\\'")}';
+            searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+            searchInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+          }
+        }, 400);
+      })();
+    `;
+    document.head.appendChild(script);
+    script.remove();
+
+    // Step 2: Poll for results to appear in the Select2 dropdown list, then click the match
     let attempts = 0;
     const interval = setInterval(function () {
       attempts++;
-      const selectEl = document.getElementById(selectId);
-      const options  = selectEl ? selectEl.querySelectorAll('option') : [];
 
-      let matchedOption = null;
-      for (let opt of options) {
-        if (opt.textContent.trim().toUpperCase().includes(targetUpper)) {
-          matchedOption = opt;
+      // Select2 renders results in a <ul class="select2-results__options"> list
+      const resultItems = document.querySelectorAll('.select2-results__option');
+      let matchedItem = null;
+      for (let item of resultItems) {
+        const text = item.textContent.trim().toUpperCase();
+        if (text.includes(targetUpper)) {
+          matchedItem = item;
           break;
         }
       }
 
-      if (matchedOption) {
+      if (matchedItem) {
         clearInterval(interval);
-        const value = matchedOption.value;
-        selectEl.value = value;
-        triggerSelect2(selectEl, value);
-        selectEl.dispatchEvent(new Event('change', { bubbles: true }));
-        console.log('[FCI NOC Assistant] Selected employee "' + targetName + '" by name in #' + selectId);
-        callback(value);
+        console.log('[FCI NOC Assistant] Live-search result found for "' + searchText + '". Clicking...');
+        matchedItem.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+        matchedItem.click();
+
+        // After clicking, wait briefly then call the callback
+        setTimeout(function () {
+          callback();
+        }, 800);
 
       } else if (attempts >= 30) {
         clearInterval(interval);
-        console.warn('[FCI NOC Assistant] Could not find employee "' + targetName + '" by name in #' + selectId + ' after 15 seconds.');
-        console.warn('[FCI NOC Assistant] Available options:');
-        const selectEl2 = document.getElementById(selectId);
-        if (selectEl2) {
-          selectEl2.querySelectorAll('option').forEach(o => {
-            console.warn('  "' + o.textContent.trim() + '"');
-          });
-        }
+        console.warn('[FCI NOC Assistant] Live-search: no result found for "' + searchText + '" in #' + selectId + ' after 15 seconds.');
+        console.warn('[FCI NOC Assistant] Visible result items:');
+        document.querySelectorAll('.select2-results__option').forEach(function(item) {
+          console.warn('  "' + item.textContent.trim() + '"');
+        });
       }
     }, 500);
   }
