@@ -112,6 +112,14 @@
     return false;
   }
 
+  // Helper: Read Cadre and Office from the page
+  function getCadreAndOffice() {
+    const cadreValue = getFieldValue('cadre');
+    const officeValue = getFieldValue('office');
+    const isRoChandigarh = officeValue.trim().replace(/\s+/g, ' ').toUpperCase() === 'RO CHANDIGARH';
+    return { cadreValue, officeValue, isRoChandigarh };
+  }
+
   // STEP 3: Parse table and decide which stage we are in
   function checkConditionsAndAct(tbody) {
     const allRows = tbody.querySelectorAll('tr');
@@ -136,6 +144,12 @@
         }
       }
     }
+
+    // --- READ CADRE AND OFFICE FIRST (before any stage checks) ---
+    const { cadreValue, officeValue, isRoChandigarh } = getCadreAndOffice();
+    console.log('[FCI NOC Assistant] Office read from page: "' + officeValue + '"');
+    console.log('[FCI NOC Assistant] Cadre read from page:  "' + cadreValue + '"');
+    console.log('[FCI NOC Assistant] isRoChandigarh: ' + isRoChandigarh);
 
     // --- Check STAGE 2 first (more specific) ---
     // Last "Reviewed" entry = ABHIMANYU SWAMI
@@ -249,6 +263,7 @@
       && !stage2
       && !stage3
       && !stage3bAssistantIssue;
+
     // --- Check STAGE 1C (assistant completed performa, send to ABHIMANYU SWAMI) ---
     // Trigger: Last Reviewed = assistant, NO ABHIMANYU SWAMI in history yet, Office = RO CHANDIGARH
     const abhimanyuPresent = isAbhimanyuInHistory(entries);
@@ -260,18 +275,9 @@
       && afterAssistantReviewed.actionTaken.trim() === STAGE2_NEXT_ACTION
       && afterAssistantReviewed.remark.trim() === STAGE2_NEXT_REMARK;
 
-
-    // Read Cadre and Office early so we can log them regardless of stage match
-    const cadreValue  = getFieldValue('cadre');
-    const officeValue = getFieldValue('office');
-    const isRoChandigarh = officeValue.trim().replace(/\s+/g, ' ').toUpperCase() === 'RO CHANDIGARH';
-
     // Stage 3B only applies when office is NOT RO CHANDIGARH
     const stage3b = stage3bAssistantIssue && !isRoChandigarh;
 
-    console.log('[FCI NOC Assistant] Office read from page: "' + officeValue + '"');
-    console.log('[FCI NOC Assistant] Cadre read from page:  "' + cadreValue + '"');
-    console.log('[FCI NOC Assistant] isRoChandigarh: ' + isRoChandigarh);
     console.log('[FCI NOC Assistant] Stage 3  (Fill Reviewer Remarks):      ' + (stage3  ? 'MATCH' : 'no match'));
     console.log('[FCI NOC Assistant] Stage 3B (Send back to DO):             ' + (stage3b ? 'MATCH' : 'no match'));
     console.log('[FCI NOC Assistant] Stage 3C (Re-send to assistant):        ' + (stage3c ? 'MATCH' : 'no match'));
@@ -318,7 +324,7 @@
 
     } else if (stage3c) {
       // Stage 3C: DO has reprocessed and sent back → re-send to assistant for rechecking
-      const assistant = decideAssistant();
+      const assistant = decideAssistant(cadreValue, officeValue);
       if (!assistant) return;
       console.log('[FCI NOC Assistant] Stage 3C: DO Manager "' + doManagerEntry.employeeName + '" has sent back. Re-routing to ' + assistant.name + '...');
       highlightTriggerRow(tbody, doManagerEntry.employeeName, entryBeforeAmitPending.actionTaken);
@@ -332,23 +338,9 @@
       sessionStorage.removeItem('fci_noc_target_employee_name');
       setTimeout(clickAddReviewer, 2000);
 
-    } else if (stage2) {    } else if (stage1c) {
-      // Stage 1C: Assistant has completed performa attachment → send to ABHIMANYU SWAMI for vigilance clearance
-      console.log('[FCI NOC Assistant] Stage 1C: Assistant "' + lastAssistantReviewed.employeeName + '" has completed performa. ABHIMANYU SWAMI not in history yet. Sending to ABHIMANYU SWAMI for vigilance clearance...');
-      highlightTriggerRow(tbody, lastAssistantReviewed.employeeName, 'Reviewed');
-
-      sessionStorage.setItem('fci_noc_stage', '1c');
-      sessionStorage.setItem('fci_noc_office_type', OFFICE_TYPE_RO);
-      sessionStorage.setItem('fci_noc_assistant_emp', STAGE1C_TARGET_NUMBER);
-      sessionStorage.setItem('fci_noc_assistant_name', STAGE1C_TARGET_NAME);
-      sessionStorage.setItem('fci_noc_assistant_remark', STAGE1C_REMARK);
-      sessionStorage.removeItem('fci_noc_target_office');
-      sessionStorage.removeItem('fci_noc_target_employee_name');
-      setTimeout(clickAddReviewer, 2000);
-
     } else if (stage2) {
       // Stage 2: Last Reviewed = ABHIMANYU SWAMI, next = AMIT KUMAR SINGH (Pending Review, N/A)
-      const assistant = decideAssistant();
+      const assistant = decideAssistant(cadreValue, officeValue);
       if (assistant) {
         console.log('[FCI NOC Assistant] Stage 2: Routing to ' + assistant.name + ' (' + assistant.empNo + ')');
         highlightTriggerRow(tbody, 'ABHIMANYU SWAMI', 'Reviewed');
@@ -362,9 +354,23 @@
         setTimeout(clickAddReviewer, 2000);
       }
 
+    } else if (stage1c) {
+      // Stage 1C: Assistant has completed performa attachment → send to ABHIMANYU SWAMI for vigilance clearance
+      console.log('[FCI NOC Assistant] Stage 1C: Assistant "' + lastAssistantReviewed.employeeName + '" has completed performa. ABHIMANYU SWAMI not in history yet. Sending to ABHIMANYU SWAMI for vigilance clearance...');
+      highlightTriggerRow(tbody, lastAssistantReviewed.employeeName, 'Reviewed');
+
+      sessionStorage.setItem('fci_noc_stage', '1c');
+      sessionStorage.setItem('fci_noc_office_type', OFFICE_TYPE_RO);
+      sessionStorage.setItem('fci_noc_assistant_emp', STAGE1C_TARGET_NUMBER);
+      sessionStorage.setItem('fci_noc_assistant_name', STAGE1C_TARGET_NAME);
+      sessionStorage.setItem('fci_noc_assistant_remark', STAGE1C_REMARK);
+      sessionStorage.removeItem('fci_noc_target_office');
+      sessionStorage.removeItem('fci_noc_target_employee_name');
+      setTimeout(clickAddReviewer, 2000);
+
     } else if (stage1 && isRoChandigarh) {
       // Stage 1B: Same trigger as Stage 1 but Office = RO CHANDIGARH
-      const assistant = decideAssistant();
+      const assistant = decideAssistant(cadreValue, officeValue);
       if (assistant) {
         console.log('[FCI NOC Assistant] Stage 1B (RO CHANDIGARH): Routing to ' + assistant.name + ' (' + assistant.empNo + ')');
         highlightTriggerRow(tbody, 'MAYURESH KUMAR', 'Dispatched');
@@ -452,25 +458,25 @@
   }
 
   // Read Cadre and Office from the page and return the correct assistant
-  function decideAssistant() {
-    const cadre  = getFieldValue('cadre').trim().replace(/\s+/g, ' ').toUpperCase();
-    const office = getFieldValue('office').trim().replace(/\s+/g, ' ').toUpperCase();
+  function decideAssistant(cadre, office) {
+    const cadreValue  = cadre.trim().replace(/\s+/g, ' ').toUpperCase();
+    const officeValue = office.trim().replace(/\s+/g, ' ').toUpperCase();
 
-    console.log('[FCI NOC Assistant] Cadre: "' + cadre + '" | Office: "' + office + '"');
+    console.log('[FCI NOC Assistant] Cadre: "' + cadreValue + '" | Office: "' + officeValue + '"');
 
-    if (cadre === 'GENERAL') {
+    if (cadreValue === 'GENERAL') {
       return ASSISTANT_GENERAL;
-    } else if (cadre === 'DEPOT') {
-      if (DIVYA_OFFICES.map(o => o.trim().replace(/\s+/g, ' ').toUpperCase()).includes(office)) {
+    } else if (cadreValue === 'DEPOT') {
+      if (DIVYA_OFFICES.map(o => o.trim().replace(/\s+/g, ' ').toUpperCase()).includes(officeValue)) {
         return ASSISTANT_DIVYA;
-      } else if (VISHALI_OFFICES.map(o => o.trim().replace(/\s+/g, ' ').toUpperCase()).includes(office)) {
+      } else if (VISHALI_OFFICES.map(o => o.trim().replace(/\s+/g, ' ').toUpperCase()).includes(officeValue)) {
         return ASSISTANT_VISHALI;
       } else {
-        console.warn('[FCI NOC Assistant] Cadre is Depot but Office "' + office + '" is not in any known group. No action taken.');
+        console.warn('[FCI NOC Assistant] Cadre is Depot but Office "' + officeValue + '" is not in any known group. No action taken.');
         return null;
       }
     } else {
-      console.warn('[FCI NOC Assistant] Unrecognised Cadre: "' + cadre + '". No action taken.');
+      console.warn('[FCI NOC Assistant] Unrecognised Cadre: "' + cadreValue + '". No action taken.');
       return null;
     }
   }
