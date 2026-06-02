@@ -37,6 +37,9 @@
 
   const ASSISTANT_REMARK = 'Kindly review for admin. clearance and check for the details.';
   const PERFORMA_REMARK   = 'Kindly provide the details as per the performa provided by the FCI, Zonal Office (N).';
+  const STAGE1C_REMARK = 'With respect to the application made by the employee, kindly provide the vigilance clearance for the purpose of NOC for other exam.';
+  const STAGE1C_TARGET_NAME   = 'ABHIMANYU SWAMI';
+  const STAGE1C_TARGET_NUMBER = '276695';
 
   // STAGE 3: Last Reviewed = one of the three assistants, next = AMIT KUMAR SINGH (Pending Review, N/A)
   // AND that last reviewed remark contains the key sentence → fill Reviewer Remarks directly on this page
@@ -96,6 +99,17 @@
         console.warn('[FCI NOC Assistant] Table did not load in time.');
       }
     }, 500);
+  }
+
+  // Helper: Check if ABHIMANYU SWAMI has already reviewed in the action history
+  function isAbhimanyuInHistory(entries) {
+    for (let i = 0; i < entries.length; i++) {
+      if (entries[i].actionTaken === 'Reviewed'
+          && entries[i].employeeName.toUpperCase().includes('ABHIMANYU SWAMI')) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // STEP 3: Parse table and decide which stage we are in
@@ -235,6 +249,17 @@
       && !stage2
       && !stage3
       && !stage3bAssistantIssue;
+    // --- Check STAGE 1C (assistant completed performa, send to ABHIMANYU SWAMI) ---
+    // Trigger: Last Reviewed = assistant, NO ABHIMANYU SWAMI in history yet, Office = RO CHANDIGARH
+    const abhimanyuPresent = isAbhimanyuInHistory(entries);
+    const stage1c = lastAssistantReviewed
+      && !abhimanyuPresent
+      && isRoChandigarh
+      && afterAssistantReviewed
+      && afterAssistantReviewed.employeeName.toUpperCase().includes(STAGE2_NEXT_NAME)
+      && afterAssistantReviewed.actionTaken.trim() === STAGE2_NEXT_ACTION
+      && afterAssistantReviewed.remark.trim() === STAGE2_NEXT_REMARK;
+
 
     // Read Cadre and Office early so we can log them regardless of stage match
     const cadreValue  = getFieldValue('cadre');
@@ -252,11 +277,12 @@
     console.log('[FCI NOC Assistant] Stage 3C (Re-send to assistant):        ' + (stage3c ? 'MATCH' : 'no match'));
     console.log('[FCI NOC Assistant] Stage 2  (Send to Assistant):           ' + (stage2  ? 'MATCH' : 'no match'));
     console.log('[FCI NOC Assistant] Stage 1  (Send to ABHIMANYU SWAMI):     ' + (stage1  ? 'MATCH' : 'no match'));
+    console.log('[FCI NOC Assistant] Stage 1C (Send to ABHIMANYU after performa): ' + (stage1c ? 'MATCH' : 'no match'));
     if (doManagerEntry) {
       console.log('[FCI NOC Assistant] DO Manager identified: "' + doManagerEntry.employeeName + '" (S.No. ' + doManagerEntry.slNo + ')');
     }
 
-    // --- Stage priority: 3 → 3B → 3C → 2 → 1B → 1 ---
+    // --- Stage priority: 3 → 3B → 3C → 2 → 1C → 1B → 1 ---
 
     if (stage3) {
       // Stage 3: Assistant has confirmed request is in order → fill Reviewer Remarks directly
@@ -302,6 +328,20 @@
       sessionStorage.setItem('fci_noc_assistant_emp', assistant.empNo);
       sessionStorage.setItem('fci_noc_assistant_name', assistant.name);
       sessionStorage.setItem('fci_noc_assistant_remark', ASSISTANT_REMARK);
+      sessionStorage.removeItem('fci_noc_target_office');
+      sessionStorage.removeItem('fci_noc_target_employee_name');
+      setTimeout(clickAddReviewer, 2000);
+
+    } else if (stage2) {    } else if (stage1c) {
+      // Stage 1C: Assistant has completed performa attachment → send to ABHIMANYU SWAMI for vigilance clearance
+      console.log('[FCI NOC Assistant] Stage 1C: Assistant "' + lastAssistantReviewed.employeeName + '" has completed performa. ABHIMANYU SWAMI not in history yet. Sending to ABHIMANYU SWAMI for vigilance clearance...');
+      highlightTriggerRow(tbody, lastAssistantReviewed.employeeName, 'Reviewed');
+
+      sessionStorage.setItem('fci_noc_stage', '1c');
+      sessionStorage.setItem('fci_noc_office_type', OFFICE_TYPE_RO);
+      sessionStorage.setItem('fci_noc_assistant_emp', STAGE1C_TARGET_NUMBER);
+      sessionStorage.setItem('fci_noc_assistant_name', STAGE1C_TARGET_NAME);
+      sessionStorage.setItem('fci_noc_assistant_remark', STAGE1C_REMARK);
       sessionStorage.removeItem('fci_noc_target_office');
       sessionStorage.removeItem('fci_noc_target_employee_name');
       setTimeout(clickAddReviewer, 2000);
