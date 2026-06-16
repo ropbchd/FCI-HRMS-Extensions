@@ -236,6 +236,31 @@
     return '';
   }
 
+  // --- Read OTA Amount directly from the input field ---
+  function getOtaAmount() {
+    // Try to read from the input field directly
+    const labels = document.querySelectorAll('label, span, div, p');
+    for (let el of labels) {
+      if (el.textContent.trim().toLowerCase() === 'ota amount') {
+        let container = el.closest('div') || el.parentElement;
+        if (container) {
+          const input = container.querySelector('input');
+          if (input && input.value) return input.value.trim();
+          // Also check for read-only or display fields
+          const displayField = container.querySelector('span.value, div.value, input[readonly]');
+          if (displayField && displayField.value !== undefined) {
+            return displayField.value.trim();
+          }
+          if (displayField && displayField.textContent) {
+            return displayField.textContent.trim();
+          }
+        }
+      }
+    }
+    // Fallback to text parsing
+    return getLabelledField('OTA Amount');
+  }
+
   // --- Convert ALL-CAPS HRMS name to Proper Case ---
   function toProperCase(name) {
     return name
@@ -427,7 +452,7 @@
     const totalSanctionedHours = getLabelledField('Total Sanctioned Hours');
     const totalNoDay            = getLabelledField('Total No. Day');
     const totalAmount           = getLabelledField('Total Approved Amount (INR)'); // NEW: Total Amount
-    const otaAmount             = getLabelledField('OTA Amount'); // FIXED: Now properly reads OTA Amount
+    const otaAmount             = getOtaAmount(); // FIXED: Now reads from input field directly
     const admissibleOtaHours    = getAdmissibleOtaHours();
     const { fromDate, toDate }  = getFromToDateFromTable();
     const month                 = fromDate ? computeMonthLabel(fromDate) : '';
