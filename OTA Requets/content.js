@@ -237,28 +237,27 @@
   }
 
   // --- Read OTA Amount from the page ---
-  // The OTA Amount field is a read-only display, not a standard input
   function getOtaAmount() {
     const bodyText = document.body.innerText || '';
     const lines = bodyText.split('\n');
     
     for (let i = 0; i < lines.length; i++) {
-      // Look for "OTA Amount" label
       if (lines[i].trim().toLowerCase() === 'ota amount') {
-        // The value should be the very next non-empty line
         for (let j = i + 1; j < lines.length; j++) {
           const value = lines[j].trim();
-          // Skip empty lines and the label itself
           if (value && value.toLowerCase() !== 'ota amount') {
-            // Validate it's a number (e.g., "1951.18", "1,234.56", "1234")
-            if (/^[\d,]+\.?\d*$/.test(value.replace(/,/g, ''))) {
-              return value;
+            // Remove any currency symbols or prefixes like "Rs.", "₹", etc.
+            const cleanValue = value.replace(/^[Rs\.\s₹]*/i, '').trim();
+            // Validate it's a number (handles "1951.18", "1,234.56", "Rs. 1234")
+            if (/^[\d,]+\.?\d*$/.test(cleanValue.replace(/,/g, ''))) {
+              return cleanValue;
             }
           }
         }
       }
     }
-    return '';
+    // Fallback to generic reader
+    return getLabelledField('OTA Amount');
   }
 
   // --- Convert ALL-CAPS HRMS name to Proper Case ---
@@ -452,7 +451,7 @@
     const totalSanctionedHours = getLabelledField('Total Sanctioned Hours');
     const totalNoDay            = getLabelledField('Total No. Day');
     const totalAmount           = getLabelledField('Total Approved Amount (INR)'); // NEW: Total Amount
-    const otaAmount             = getOtaAmount(); // FIXED: Now reads from input field directly
+    const otaAmount = getOtaAmount() || getLabelledField('OTA Amount'); // FIXED: With fallback
     const admissibleOtaHours    = getAdmissibleOtaHours();
     const { fromDate, toDate }  = getFromToDateFromTable();
     const month                 = fromDate ? computeMonthLabel(fromDate) : '';
