@@ -236,29 +236,29 @@
     return '';
   }
 
-  // --- Read OTA Amount directly from the input field ---
+  // --- Read OTA Amount from the page ---
+  // The OTA Amount field is a read-only display, not a standard input
   function getOtaAmount() {
-    // Try to read from the input field directly
-    const labels = document.querySelectorAll('label, span, div, p');
-    for (let el of labels) {
-      if (el.textContent.trim().toLowerCase() === 'ota amount') {
-        let container = el.closest('div') || el.parentElement;
-        if (container) {
-          const input = container.querySelector('input');
-          if (input && input.value) return input.value.trim();
-          // Also check for read-only or display fields
-          const displayField = container.querySelector('span.value, div.value, input[readonly]');
-          if (displayField && displayField.value !== undefined) {
-            return displayField.value.trim();
-          }
-          if (displayField && displayField.textContent) {
-            return displayField.textContent.trim();
+    const bodyText = document.body.innerText || '';
+    const lines = bodyText.split('\n');
+    
+    for (let i = 0; i < lines.length; i++) {
+      // Look for "OTA Amount" label
+      if (lines[i].trim().toLowerCase() === 'ota amount') {
+        // The value should be the very next non-empty line
+        for (let j = i + 1; j < lines.length; j++) {
+          const value = lines[j].trim();
+          // Skip empty lines and the label itself
+          if (value && value.toLowerCase() !== 'ota amount') {
+            // Validate it's a number (e.g., "1951.18", "1,234.56", "1234")
+            if (/^[\d,]+\.?\d*$/.test(value.replace(/,/g, ''))) {
+              return value;
+            }
           }
         }
       }
     }
-    // Fallback to text parsing
-    return getLabelledField('OTA Amount');
+    return '';
   }
 
   // --- Convert ALL-CAPS HRMS name to Proper Case ---
