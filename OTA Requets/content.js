@@ -21,8 +21,7 @@
   const MULTIPLICATION_FACTOR_VALUE = '1.1';
 
   // --- Google Sheets register write-back ---
-  // Paste the Apps Script Web App URL here after deploying AppsScript_OTA_Register.gs
-  const OTA_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbysEkuefsqNIRPqjgqViJczUHCwiijnk_1ifrst3w82cJxO2-XPB-wKGJSghjXnQ5BC8Q/exec';
+  const OTA_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxdPk85q44afaCsFvfmTcOazUUVawis-qtCRqfGqqNRw0BFO2CHc5uwkLA_BkSA0oZD-w/exec';
 
   // --- SAFETY CHECK: Only activate for OTA requests (Request ID starts with CBO) ---
   function getRequestId() {
@@ -83,9 +82,6 @@
 
     for (let row of allRows) {
       const cells = row.querySelectorAll('td');
-      // Rows can have 8 cells (S.No, Date, Version, Action, Name, Designation, Division, Authority)
-      // or 6 cells when Date/Version are omitted (e.g. some "Dispatched" rows).
-      // The last 5 cells are consistently: Action Taken, Employee Name, Designation, Division, Authority.
       if (cells.length === 8 || cells.length === 6) {
         const n = cells.length;
         currentEntry = {
@@ -102,7 +98,6 @@
       }
     }
 
-    // --- Find last "Dispatched" entry ---
     let lastDispatchedIndex = -1;
     for (let i = 0; i < entries.length; i++) {
       if (entries[i].actionTaken === 'Dispatched') lastDispatchedIndex = i;
@@ -110,7 +105,6 @@
     const lastDispatched  = lastDispatchedIndex !== -1 ? entries[lastDispatchedIndex] : null;
     const afterDispatched = lastDispatched ? entries[lastDispatchedIndex + 1] || null : null;
 
-    // --- Trigger condition ---
     const trigger = lastDispatched
       && lastDispatched.employeeName.toUpperCase().includes(DISPATCHER_NAME)
       && afterDispatched
@@ -125,7 +119,6 @@
       return;
     }
 
-    // --- Read Employee Number from page ---
     const employeeNumber = getEmployeeNumber();
     const cadre = CADRE_LOOKUP[employeeNumber];
 
@@ -136,10 +129,8 @@
 
     console.log(LOG + ' Employee Number: ' + employeeNumber + ' | Cadre: ' + cadre);
 
-    // Highlight the trigger row before acting
     highlightTriggerRow(tbody, DISPATCHER_NAME, 'Dispatched');
 
-    // Proceed with filling the form
     setTimeout(function () {
       fillMultiplicationFactor();
       checkPrerequisiteCheckboxes();
@@ -149,7 +140,6 @@
 
   // --- Read Employee Number from the page info block ---
   function getEmployeeNumber() {
-    // Try line-by-line text parsing similar to Higher Studies assistant
     const bodyText = document.body.innerText || '';
     const lines = bodyText.split('\n');
     for (let i = 0; i < lines.length; i++) {
@@ -195,11 +185,9 @@
 
   // --- Read Admissible OTA Hours from the page (read-only field) ---
   function getAdmissibleOtaHours() {
-    // Look for an input/field near the "Admissible OTA Hours" label
     const labels = document.querySelectorAll('label, span, div, p');
     for (let el of labels) {
       if (el.textContent.trim().toLowerCase() === 'admissible ota hours') {
-        // Search siblings / nearby inputs for the value
         let container = el.closest('div') || el.parentElement;
         if (container) {
           const input = container.querySelector('input, span.value, div.value');
@@ -207,7 +195,6 @@
             const val = (input.value !== undefined ? input.value : input.textContent).trim();
             if (val) return val;
           }
-          // Try next sibling element
           let sibling = container.nextElementSibling;
           if (sibling) {
             const val2 = sibling.textContent.trim();
@@ -217,7 +204,6 @@
       }
     }
 
-    // Fallback: line-by-line text parser
     const bodyText = document.body.innerText || '';
     const lines = bodyText.split('\n');
     for (let i = 0; i < lines.length; i++) {
@@ -231,23 +217,26 @@
     return '';
   }
 
-  // --- Generic label-based field reader (used for Total Hours Of OTA, Total Sanctioned
-  //     Hours, Total No. Day, OTA Amount — all displayed the same way as Admissible OTA Hours) ---
+  // --- Generic label-based field reader ---
+  // FIXED: Now properly reads values by looking at the next non-empty line
   function getLabelledField(labelText) {
     const bodyText = document.body.innerText || '';
     const lines = bodyText.split('\n');
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].trim().toLowerCase() === labelText.toLowerCase()) {
-        if (i + 1 < lines.length) {
-          const value = lines[i + 1].trim();
-          if (value) return value;
+        // Look ahead for the next non-empty line (skip blank lines)
+        for (let j = i + 1; j < lines.length; j++) {
+          const value = lines[j].trim();
+          if (value && value.toLowerCase() !== labelText.toLowerCase()) {
+            return value;
+          }
         }
       }
     }
     return '';
   }
 
-  // --- Convert ALL-CAPS HRMS name to Proper Case (e.g. "SAMYAK NILKANTH MESHRAM" -> "Samyak Nilkanth Meshram") ---
+  // --- Convert ALL-CAPS HRMS name to Proper Case ---
   function toProperCase(name) {
     return name
       .toLowerCase()
@@ -258,14 +247,13 @@
       .join(' ');
   }
 
-  // --- Read From Date / To Date from the day-by-day OTA table (first and last row's Date column) ---
+  // --- Read From Date / To Date from the day-by-day OTA table ---
   function getFromToDateFromTable() {
     const rows = document.querySelectorAll('table.data-table-main-in tbody tr, table.dataTable tbody tr');
     const dates = [];
 
     for (let row of rows) {
       const cells = row.querySelectorAll('td');
-      // Layout: S.No(0), Date(1), Hours of OTA(2-cell w/ hidden input)...
       if (cells.length >= 2) {
         const dateText = cells[1].textContent.trim();
         if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateText)) {
@@ -278,7 +266,7 @@
     return { fromDate: dates[0], toDate: dates[dates.length - 1] };
   }
 
-  // --- Compute "Month - Year" register label from a DD/MM/YYYY date string ---
+  // --- Compute "Month - Year" register label ---
   function computeMonthLabel(dateStr) {
     const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const parts = dateStr.split('/');
@@ -288,7 +276,6 @@
     if (isNaN(month) || month < 1 || month > 12) return '';
     return MONTH_NAMES[month - 1] + ' - ' + year;
   }
-
 
   function fillMultiplicationFactor(attempts) {
     attempts = attempts || 0;
@@ -308,7 +295,6 @@
     row1Select.dispatchEvent(new Event('input',  { bubbles: true }));
     row1Select.dispatchEvent(new Event('change', { bubbles: true }));
 
-    // After setting row 1, click the header checkbox to propagate to all rows
     setTimeout(function () {
       const headerCheckbox = document.querySelector('input[type="checkbox"][name="select_multiplication_factor"]');
       if (!headerCheckbox) {
@@ -325,7 +311,7 @@
     }, 500);
   }
 
-  // --- Check the three prerequisite checkboxes above Admissible OTA Hours ---
+  // --- Check the three prerequisite checkboxes ---
   function checkPrerequisiteCheckboxes() {
     const labelTexts = [
       'necessary entries have been made in the overtime allowance register maintained for the purpose',
@@ -340,15 +326,12 @@
       const text = el.textContent.trim().toLowerCase();
       for (let target of labelTexts) {
         if (text === target || text.includes(target)) {
-          // Find the checkbox associated with this label/text element
           let checkbox = null;
 
-          // Case 1: el itself is/contains the checkbox's label with a "for" attribute
           if (el.tagName === 'LABEL' && el.getAttribute('for')) {
             checkbox = document.getElementById(el.getAttribute('for'));
           }
 
-          // Case 2: checkbox is a sibling or inside a common container
           if (!checkbox) {
             const container = el.closest('div, li, td') || el.parentElement;
             if (container) {
@@ -386,7 +369,7 @@
 
     if (!employeeName || !designation || !admissibleHrs) {
       if (attempts >= 10) {
-        console.warn(LOG + ' Could not read all required fields for the remark (Name: "' + employeeName + '", Designation: "' + designation + '", Admissible Hours: "' + admissibleHrs + '"). Remark NOT filled.');
+        console.warn(LOG + ' Could not read all required fields for the remark. Remark NOT filled.');
         return;
       }
       setTimeout(function () { fillReviewerRemarks(cadre, attempts + 1); }, 500);
@@ -421,7 +404,6 @@
     console.log(LOG + ' Reviewer Remarks filled.');
     console.log(LOG + ' *** Please verify the multiplication factor, checkboxes, and remark, then click Review yourself. ***');
 
-    // --- Send this entry to the Google Sheet register (immediate, fire-and-forget) ---
     sendToRegister({
       employeeNumberRaw: getEmployeeNumber(),
       employeeNameRaw:   employeeName,
@@ -432,7 +414,8 @@
     });
   }
 
-  // --- Gather remaining register fields and POST the row to the Apps Script Web App ---
+  // --- Gather remaining register fields and POST to the Apps Script Web App ---
+  // FIXED: Added totalAmount field and fixed getLabelledField to properly read OTA Amount
   function sendToRegister(base) {
     if (!OTA_SHEET_WEBAPP_URL || OTA_SHEET_WEBAPP_URL.indexOf('PASTE_YOUR') === 0) {
       console.warn(LOG + ' Google Sheet Web App URL not configured. Skipping register write-back.');
@@ -443,12 +426,22 @@
     const totalHoursOfOta       = getLabelledField('Total Hours Of OTA');
     const totalSanctionedHours = getLabelledField('Total Sanctioned Hours');
     const totalNoDay            = getLabelledField('Total No. Day');
-    const otaAmount             = getLabelledField('OTA Amount');
+    const totalAmount           = getLabelledField('Total Approved Amount (INR)'); // NEW: Total Amount
+    const otaAmount             = getLabelledField('OTA Amount'); // FIXED: Now properly reads OTA Amount
     const admissibleOtaHours    = getAdmissibleOtaHours();
     const { fromDate, toDate }  = getFromToDateFromTable();
     const month                 = fromDate ? computeMonthLabel(fromDate) : '';
 
-    // Build payload object
+    // Debug logging to verify field values
+    console.log(LOG + ' Field values:', {
+      totalHoursOfOta: totalHoursOfOta,
+      totalSanctionedHours: totalSanctionedHours,
+      totalNoDay: totalNoDay,
+      totalAmount: totalAmount,
+      otaAmount: otaAmount,
+      admissibleOtaHours: admissibleOtaHours
+    });
+
     const payloadObj = {
       employeeNumber:        base.employeeNumberRaw,
       employeeNameRaw:       base.employeeNameRaw,
@@ -462,12 +455,12 @@
       totalHoursOfOta:        totalHoursOfOta,
       totalSanctionedHours:   totalSanctionedHours,
       totalNoDay:             totalNoDay,
+      totalAmount:            totalAmount,         // NEW: Total Amount column
       admissibleOtaHours:     admissibleOtaHours,
-      otaAmount:              otaAmount,
+      otaAmount:              otaAmount,           // FIXED: Now gets actual OTA Amount value
       remark:                 base.remark
     };
 
-    // Encode as URL-encoded form data to survive Apps Script 302 redirect
     const formData = new URLSearchParams();
     formData.append('payload', JSON.stringify(payloadObj));
 
@@ -475,18 +468,15 @@
 
     fetch(OTA_SHEET_WEBAPP_URL, {
       method: 'POST',
-      // No Content-Type header needed — fetch sets it automatically for URLSearchParams
       body: formData
     })
-      .then(function (response) { return response.text(); }) // Apps Script returns text/html
+      .then(function (response) { return response.text(); })
       .then(function (text) {
         console.log(LOG + ' Raw response: ' + text);
-        // Try to parse as JSON
         let result;
         try {
           result = JSON.parse(text);
         } catch (e) {
-          // If not JSON, treat as success if it contains common success indicators
           const isSuccess = text.toLowerCase().includes('success') || 
                            text.toLowerCase().includes('added') || 
                            text.toLowerCase().includes('ok');
@@ -509,7 +499,7 @@
 
   // --- Show a visible on-page warning banner if the Sheet write-back fails ---
   function showRegisterWarning(reason) {
-    if (document.getElementById('ota-register-warning')) return; // avoid duplicates
+    if (document.getElementById('ota-register-warning')) return;
 
     const banner = document.createElement('div');
     banner.id = 'ota-register-warning';
@@ -535,20 +525,16 @@
     document.body.appendChild(banner);
   }
 
-  // --- Check whether a supporting document is attached (Upload Document field) ---
+  // --- Check whether a supporting document is attached ---
   function isDocumentAttached() {
-    // Look for the "Upload Document" label, then check whether its associated
-    // value area contains a link/icon (attached) or is empty (no attachment).
     const allEls = document.querySelectorAll('label, span, div, p');
     for (let el of allEls) {
       if (el.textContent.trim().toLowerCase() === 'upload document') {
         const container = el.closest('div') || el.parentElement;
         if (container) {
-          // Attached: an <a> link or an icon (e.g. <i> paperclip) is present
           const link = container.querySelector('a, i.fa-paperclip, i[class*="paperclip"], img');
           if (link) return true;
 
-          // Check the next sibling element too
           let sibling = container.nextElementSibling;
           if (sibling) {
             const sibLink = sibling.querySelector('a, i.fa-paperclip, i[class*="paperclip"], img');
@@ -557,11 +543,9 @@
             if (sibText && sibText !== '-' && sibText.toLowerCase() !== 'no') return true;
           }
         }
-        // No link/icon found near the label -> treat as not attached
         return false;
       }
     }
-    // Label not found at all -> assume not attached (safer default)
     console.warn(LOG + ' "Upload Document" field not found on page. Assuming no document attached.');
     return false;
   }
