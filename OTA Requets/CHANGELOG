@@ -1,0 +1,53 @@
+Changelog — FCI OTA Request Assistant
+All changes documented in reverse chronological order.
+---
+v1 — June 2026
+Initial version
+`content_ota_list.js`: Passive listing page automation — opens the first
+pending row's Review link (CBO prefix safety check).
+`content.js`: Single-stage review page script:
+Safety check: Request ID must start with CBO
+Clicks "View Action History" and waits for the action history table to populate
+Trigger condition: Last "Dispatched" = MAYURESH KUMAR, next entry =
+AMIT KUMAR SINGH (Pending Review, N/A) — same pattern as NOC Stage 1
+Reads Employee Number and looks up Cadre via hardcoded table:
+RISHIKESH MISHRA (286357) → General
+SAMYAK NILKANTH MESHRAM (315595) → Depot
+Any other employee number → extension stays silent, no action
+Sets row 1's Multiplication Factor dropdown (`#multiplication_factor_1`)
+to "1.1", then clicks the header checkbox
+(`input[name="select_multiplication_factor"]`) to propagate 1.1 to all
+rows and recalculate amounts
+Checks all three prerequisite checkboxes (register entries / period
+checked / person earned OT)
+Builds and fills the dynamic Reviewer Remarks with the standard OTA
+sanction template, substituting:
+Employee Name (from page)
+Designation (from page)
+Cadre (from lookup table)
+Admissible OTA Hours (from page, kept in HH:MM format, not converted
+to decimal)
+Safety features:
+CBO prefix guard on both scripts
+No auto-submission — "Review" button always clicked manually by the officer
+Highlight trigger row before acting
+Unrecognised employee / no trigger match → extension remains silent,
+no action taken
+Files added: `manifest.json`, `content.js`, `content_ota_list.js`,
+`popup.html`, `CHANGELOG.md`
+Known pending items:
+Only RISHIKESH MISHRA and SAMYAK NILKANTH MESHRAM are in the cadre
+lookup table. New OTA applicants must be added to `CADRE_LOOKUP` in
+`content.js`.
+Listing page table selector (`table.data-table-main-in` /
+`table.dataTable`) not yet verified live — update
+`content_ota_list.js` if the extension does not auto-open the first row.
+Prerequisite checkbox detection uses text-matching heuristics; verify
+on a live request that all three checkboxes are found and checked
+correctly.
+"Admissible OTA Hours" field reading uses a label-proximity + fallback
+line-by-line parser; verify the exact value/format extracted matches
+the on-page display (e.g. "48:30").
+Google Sheets register write-back (per-employee tab) — discussed as a
+"good to have" addition, not yet implemented. To be revisited once the
+core stage logic is verified on a live request.
