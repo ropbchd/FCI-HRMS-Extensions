@@ -20,30 +20,64 @@
 
   const MULTIPLICATION_FACTOR_VALUE = '1.1';
 
+  // --- Google Sheets register write-back ---
+  // Paste the Apps Script Web App URL here after deploying AppsScript_OTA_Register.gs
+  const OTA_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbysEkuefsqNIRPqjgqViJczUHCwiijnk_1ifrst3w82cJxO2-XPB-wKGJSghjXnQ5BC8Q/exec';
+
   // --- SAFETY CHECK: Only activate for OTA requests (Request ID starts with CBO) ---
   function getRequestId() {
+    if (!document.body) return null;
     const bodyText = document.body.innerText || '';
     const match = bodyText.match(/\bCBO\d+\b/i);
     return match ? match[0].toUpperCase() : null;
   }
 
-  const requestId = getRequestId();
-  if (!requestId || !requestId.startsWith(PREFIX)) {
-    console.log(LOG + ' Not a CBO (OTA) request. Extension will NOT activate.');
-  } else {
+  // --- Polling-based initialization (handles SPA dynamic loading) ---
+  function init() {
+    const requestId = getRequestId();
+    if (!requestId || !requestId.startsWith(PREFIX)) {
+      console.log(LOG + ' Not a CBO (OTA) request. Extension will NOT activate.');
+      return;
+    }
     console.log(LOG + ' Request ID confirmed: ' + requestId + '. Activating...');
     setTimeout(clickViewActionHistory, 2000);
+  }
+
+  // Wait for document.body to be available, then init
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
   }
 
   // --- STEP 1: Click View Action History ---
   function clickViewActionHistory() {
     let btn = document.querySelector('a.view-action-history');
+    
+    if (!btn) {
+      btn = document.querySelector('button.view-action-history');
+    }
+    
     if (!btn) {
       const allLinks = document.querySelectorAll('a, button');
       for (let el of allLinks) {
-        if (el.textContent.trim() === 'View Action History') { btn = el; break; }
+        if (el.textContent.trim() === 'View Action History') { 
+          btn = el; 
+          break; 
+        }
       }
     }
+    
+    if (!btn) {
+      const allLinks = document.querySelectorAll('a, button');
+      for (let el of allLinks) {
+        if (el.textContent.trim().toLowerCase().includes('action history')) { 
+          btn = el; 
+          break; 
+        }
+      }
+    }
+
     if (btn) {
       console.log(LOG + ' Step 1: Clicking "View Action History"...');
       btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
@@ -145,7 +179,7 @@
 
   // --- Read Employee Number from the page info block ---
   function getEmployeeNumber() {
-    // Try line-by-line text parsing similar to Higher Studies assistant
+    if (!document.body) return '';
     const bodyText = document.body.innerText || '';
     const lines = bodyText.split('\n');
     for (let i = 0; i < lines.length; i++) {
@@ -161,6 +195,7 @@
 
   // --- Read Employee Name from the page info block ---
   function getEmployeeName() {
+    if (!document.body) return '';
     const bodyText = document.body.innerText || '';
     const lines = bodyText.split('\n');
     for (let i = 0; i < lines.length; i++) {
@@ -176,6 +211,7 @@
 
   // --- Read Designation from the page info block ---
   function getDesignation() {
+    if (!document.body) return '';
     const bodyText = document.body.innerText || '';
     const lines = bodyText.split('\n');
     for (let i = 0; i < lines.length; i++) {
@@ -214,6 +250,7 @@
     }
 
     // Fallback: line-by-line text parser
+    if (!document.body) return '';
     const bodyText = document.body.innerText || '';
     const lines = bodyText.split('\n');
     for (let i = 0; i < lines.length; i++) {
@@ -227,7 +264,66 @@
     return '';
   }
 
-  // --- Fill Multiplication Factor: set row 1 to 1.1, then click header checkbox to propagate ---
+  // --- Generic label-based field reader (used for Total Hours Of OTA, Total Sanctioned
+  //     Hours, Total No. Day, OTA Amount — all displayed the same way as Admissible OTA Hours) ---
+  function getLabelledField(labelText) {
+    if (!document.body) return '';
+    const bodyText = document.body.innerText || '';
+    const lines = bodyText.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].trim().toLowerCase() === labelText.toLowerCase()) {
+        if (i + 1 < lines.length) {
+          const value = lines[i + 1].trim();
+          if (value) return value;
+        }
+      }
+    }
+    return '';
+  }
+
+  // --- Convert ALL-CAPS HRMS name to Proper Case (e.g. "SAMYAK NILKANTH MESHRAM" -> "Samyak Nilkanth Meshram") ---
+  function toProperCase(name) {
+    return name
+      .toLowerCase()
+      .split(' ')
+      .map(function (word) {
+        return word.length > 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word;
+      })
+      .join(' ');
+  }
+
+  // --- Read From Date / To Date from the day-by-day OTA table (first and last row's Date column) ---
+  function getFromToDateFromTable() {
+    const rows = document.querySelectorAll('table.data-table-main-in tbody tr, table.dataTable tbody tr');
+    const dates = [];
+
+    for (let row of rows) {
+      const cells = row.querySelectorAll('td');
+      // Layout: S.No(0), Date(1), Hours of OTA(2-cell w/ hidden input)...
+      if (cells.length >= 2) {
+        const dateText = cells[1].textContent.trim();
+        if (/^\d{2}\/\d{2}\/\d{4}$/.test(dateText)) {
+          dates.push(dateText);
+        }
+      }
+    }
+
+    if (dates.length === 0) return { fromDate: '', toDate: '' };
+    return { fromDate: dates[0], toDate: dates[dates.length - 1] };
+  }
+
+  // --- Compute "Month - Year" register label from a DD/MM/YYYY date string ---
+  function computeMonthLabel(dateStr) {
+    const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const parts = dateStr.split('/');
+    if (parts.length !== 3) return '';
+    const month = parseInt(parts[1], 10);
+    const year  = parts[2];
+    if (isNaN(month) || month < 1 || month > 12) return '';
+    return MONTH_NAMES[month - 1] + ' - ' + year;
+  }
+
+
   function fillMultiplicationFactor(attempts) {
     attempts = attempts || 0;
 
@@ -358,6 +454,102 @@
 
     console.log(LOG + ' Reviewer Remarks filled.');
     console.log(LOG + ' *** Please verify the multiplication factor, checkboxes, and remark, then click Review yourself. ***');
+
+    // --- Send this entry to the Google Sheet register (immediate, fire-and-forget) ---
+    sendToRegister({
+      employeeNumberRaw: getEmployeeNumber(),
+      employeeNameRaw:   employeeName,
+      employeeName:      toProperCase(employeeName),
+      designation:       designation,
+      cadre:             cadre,
+      remark:            remark
+    });
+  }
+
+  // --- Gather remaining register fields and POST the row to the Apps Script Web App ---
+  function sendToRegister(base) {
+    if (!OTA_SHEET_WEBAPP_URL || OTA_SHEET_WEBAPP_URL.indexOf('PASTE_YOUR') === 0) {
+      console.warn(LOG + ' Google Sheet Web App URL not configured. Skipping register write-back.');
+      return;
+    }
+
+    const requestId            = getRequestId() || '';
+    const totalHoursOfOta       = getLabelledField('Total Hours Of OTA');
+    const totalSanctionedHours = getLabelledField('Total Sanctioned Hours');
+    const totalNoDay            = getLabelledField('Total No. Day');
+    const otaAmount             = getLabelledField('OTA Amount');
+    const admissibleOtaHours    = getAdmissibleOtaHours();
+    const { fromDate, toDate }  = getFromToDateFromTable();
+    const month                 = fromDate ? computeMonthLabel(fromDate) : '';
+
+    const payload = {
+      employeeNumber:        base.employeeNumberRaw,
+      employeeNameRaw:       base.employeeNameRaw,
+      employeeName:          base.employeeName,
+      designation:           base.designation,
+      cadre:                 base.cadre,
+      requestId:             requestId,
+      fromDate:               fromDate,
+      toDate:                 toDate,
+      month:                   month,
+      totalHoursOfOta:        totalHoursOfOta,
+      totalSanctionedHours:   totalSanctionedHours,
+      totalNoDay:             totalNoDay,
+      admissibleOtaHours:     admissibleOtaHours,
+      otaAmount:              otaAmount,
+      remark:                 base.remark
+    };
+
+    console.log(LOG + ' Sending entry to OTA register sheet...', payload);
+
+    fetch(OTA_SHEET_WEBAPP_URL, {
+      method: 'POST',
+      mode: 'cors',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids CORS preflight on Apps Script
+      body: JSON.stringify(payload)
+    })
+      .then(function (response) { return response.json(); })
+      .then(function (result) {
+        if (result && result.success) {
+          console.log(LOG + ' Register write-back succeeded: ' + result.message);
+        } else {
+          const reason = (result && result.message) ? result.message : 'Unknown error';
+          console.warn(LOG + ' Register write-back FAILED: ' + reason);
+          showRegisterWarning(reason);
+        }
+      })
+      .catch(function (err) {
+        console.warn(LOG + ' Register write-back request failed: ' + err.message);
+        showRegisterWarning(err.message);
+      });
+  }
+
+  // --- Show a visible on-page warning banner if the Sheet write-back fails ---
+  function showRegisterWarning(reason) {
+    if (document.getElementById('ota-register-warning')) return; // avoid duplicates
+
+    const banner = document.createElement('div');
+    banner.id = 'ota-register-warning';
+    banner.textContent = '⚠ Could not log this entry to the OTA register — please add manually. (' + reason + ')';
+    banner.style.position = 'fixed';
+    banner.style.top = '12px';
+    banner.style.left = '50%';
+    banner.style.transform = 'translateX(-50%)';
+    banner.style.background = '#fff3cd';
+    banner.style.color = '#664d03';
+    banner.style.border = '1px solid #ffe69c';
+    banner.style.borderRadius = '6px';
+    banner.style.padding = '10px 16px';
+    banner.style.fontFamily = 'Arial, sans-serif';
+    banner.style.fontSize = '13px';
+    banner.style.fontWeight = '600';
+    banner.style.zIndex = '999999';
+    banner.style.boxShadow = '0 4px 14px rgba(0,0,0,0.15)';
+    banner.style.cursor = 'pointer';
+    banner.title = 'Click to dismiss';
+    banner.addEventListener('click', function () { banner.remove(); });
+
+    document.body.appendChild(banner);
   }
 
   // --- Check whether a supporting document is attached (Upload Document field) ---
