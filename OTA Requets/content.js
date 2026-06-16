@@ -246,9 +246,6 @@
     // Fallback: try text parsing if element not found
     return getLabelledField('OTA Amount');
   }
-    // Fallback to generic reader
-    return getLabelledField('OTA Amount');
-  }
 
   // --- Convert ALL-CAPS HRMS name to Proper Case ---
   function toProperCase(name) {
