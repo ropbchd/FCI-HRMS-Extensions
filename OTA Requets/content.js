@@ -374,9 +374,10 @@
   function fillReviewerRemarks(cadre, attempts) {
     attempts = attempts || 0;
 
-    const employeeName  = getEmployeeName();
-    const designation    = getDesignation();
-    const admissibleHrs  = getAdmissibleOtaHours();
+    const employeeNameRaw  = getEmployeeName();   // ALL CAPS from page
+    const employeeName     = toProperCase(employeeNameRaw); // Proper case
+    const designation      = getDesignation();
+    const admissibleHrs    = getAdmissibleOtaHours();
 
     if (!employeeName || !designation || !admissibleHrs) {
       if (attempts >= 10) {
@@ -390,6 +391,7 @@
     const hasDocument = isDocumentAttached();
     console.log(LOG + ' Document attached: ' + hasDocument);
 
+    // Use proper case name in the remark
     const remark = hasDocument
       ? buildOtaRemarkWithDocument(employeeName, designation, cadre, admissibleHrs)
       : buildOtaRemarkNoDocument(employeeName, designation, cadre, admissibleHrs);
@@ -414,28 +416,6 @@
 
     console.log(LOG + ' Reviewer Remarks filled.');
     console.log(LOG + ' *** Please verify the multiplication factor, checkboxes, and remark, then click Review yourself. ***');
-
-  function fillReviewerRemarks(cadre, attempts) {
-    attempts = attempts || 0;
-
-    const employeeNameRaw  = getEmployeeName();   // ALL CAPS from page
-    const employeeName     = toProperCase(employeeNameRaw); // Proper case
-    const designation      = getDesignation();
-    const admissibleHrs    = getAdmissibleOtaHours();
-
-    if (!employeeName || !designation || !admissibleHrs) {
-      // ... rest same
-    }
-
-    const hasDocument = isDocumentAttached();
-    console.log(LOG + ' Document attached: ' + hasDocument);
-
-    // Use proper case name in the remark
-    const remark = hasDocument
-      ? buildOtaRemarkWithDocument(employeeName, designation, cadre, admissibleHrs)
-      : buildOtaRemarkNoDocument(employeeName, designation, cadre, admissibleHrs);
-
-    // ... rest same until sendToRegister
 
     sendToRegister({
       employeeNumberRaw: getEmployeeNumber(),
