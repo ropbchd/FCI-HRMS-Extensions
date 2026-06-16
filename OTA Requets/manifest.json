@@ -22,6 +22,8 @@
     },
     {
       "matches": [
+        "https://www.hrmsfci.in/cb/transactions/ota_request/view/*",
+        "https://hrmsfci.in/cb/transactions/ota_request/view/*",
         "https://www.hrmsfci.in/workflow/review/*",
         "https://hrmsfci.in/workflow/review/*"
       ],
