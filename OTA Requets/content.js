@@ -470,7 +470,6 @@
 
     fetch(OTA_SHEET_WEBAPP_URL, {
       method: 'POST',
-      mode: 'cors',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids CORS preflight on Apps Script
       body: JSON.stringify(payload)
     })
