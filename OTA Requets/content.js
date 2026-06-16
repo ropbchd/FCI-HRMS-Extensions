@@ -448,7 +448,8 @@
     const { fromDate, toDate }  = getFromToDateFromTable();
     const month                 = fromDate ? computeMonthLabel(fromDate) : '';
 
-    const payload = {
+    // Build payload object
+    const payloadObj = {
       employeeNumber:        base.employeeNumberRaw,
       employeeNameRaw:       base.employeeNameRaw,
       employeeName:          base.employeeName,
@@ -466,15 +467,32 @@
       remark:                 base.remark
     };
 
-    console.log(LOG + ' Sending entry to OTA register sheet...', payload);
+    // Encode as URL-encoded form data to survive Apps Script 302 redirect
+    const formData = new URLSearchParams();
+    formData.append('payload', JSON.stringify(payloadObj));
+
+    console.log(LOG + ' Sending entry to OTA register sheet (form-encoded)...', payloadObj);
 
     fetch(OTA_SHEET_WEBAPP_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // avoids CORS preflight on Apps Script
-      body: JSON.stringify(payload)
+      // No Content-Type header needed — fetch sets it automatically for URLSearchParams
+      body: formData
     })
-      .then(function (response) { return response.json(); })
-      .then(function (result) {
+      .then(function (response) { return response.text(); }) // Apps Script returns text/html
+      .then(function (text) {
+        console.log(LOG + ' Raw response: ' + text);
+        // Try to parse as JSON
+        let result;
+        try {
+          result = JSON.parse(text);
+        } catch (e) {
+          // If not JSON, treat as success if it contains common success indicators
+          const isSuccess = text.toLowerCase().includes('success') || 
+                           text.toLowerCase().includes('added') || 
+                           text.toLowerCase().includes('ok');
+          result = { success: isSuccess, message: text };
+        }
+        
         if (result && result.success) {
           console.log(LOG + ' Register write-back succeeded: ' + result.message);
         } else {
