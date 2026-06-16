@@ -237,25 +237,15 @@
   }
 
   // --- Read OTA Amount from the page ---
+  // The OTA Amount field has id="ota_amount" - read directly from the input
   function getOtaAmount() {
-    const bodyText = document.body.innerText || '';
-    const lines = bodyText.split('\n');
-    
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].trim().toLowerCase() === 'ota amount') {
-        for (let j = i + 1; j < lines.length; j++) {
-          const value = lines[j].trim();
-          if (value && value.toLowerCase() !== 'ota amount') {
-            // Remove any currency symbols or prefixes like "Rs.", "₹", etc.
-            const cleanValue = value.replace(/^[Rs\.\s₹]*/i, '').trim();
-            // Validate it's a number (handles "1951.18", "1,234.56", "Rs. 1234")
-            if (/^[\d,]+\.?\d*$/.test(cleanValue.replace(/,/g, ''))) {
-              return cleanValue;
-            }
-          }
-        }
-      }
+    const input = document.getElementById('ota_amount');
+    if (input && input.value) {
+      return input.value.trim();
     }
+    // Fallback: try text parsing if element not found
+    return getLabelledField('OTA Amount');
+  }
     // Fallback to generic reader
     return getLabelledField('OTA Amount');
   }
