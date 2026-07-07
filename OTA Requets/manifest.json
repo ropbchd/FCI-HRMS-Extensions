@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "FCI OTA Request Assistant",
+  "version": "1.1",
+  "description": "Automates OTA Request processing on FCI HRMS portal",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": [
+    "https://www.hrmsfci.in/*",
+    "https://hrmsfci.in/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.hrmsfci.in/cb/transactions/ota_request/view/*",
+        "https://hrmsfci.in/cb/transactions/ota_request/view/*",
+        "https://www.hrmsfci.in/workflow/review/*",
+        "https://hrmsfci.in/workflow/review/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
