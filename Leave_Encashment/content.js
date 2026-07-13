@@ -36,7 +36,7 @@
   const OFFICE_TYPE_RO = '4';
 
   // --- Google Sheets register write-back ---
-  const LEAVE_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbzVHpVeSXoC3lmU3SCA7uwoyfexkRKR5MsWkg8Tv0CNx9vH85VpkUiRyx4Cx6N_0qHo/exec';
+  const LEAVE_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwho6hlbbto9jZYmpC8Akrry4cMPq4oWmeS5NMX3VyvdPxLOo0rYPhzvWyHnca7btQm/exec';
 
   // ----------------------
 
@@ -429,7 +429,6 @@
     }
 
     console.log('[FCI Leave Encashment Assistant] Attempting to send data to Google Sheet...');
-    console.log('[FCI Leave Encashment Assistant] Web App URL: ' + LEAVE_SHEET_WEBAPP_URL);
 
     setTimeout(function() {
       const office = sessionStorage.getItem('fci_leave_office') || '';
@@ -446,58 +445,30 @@
         finalRemark: remarkText
       };
 
-      console.log('[FCI Leave Encashment Assistant] Payload being sent:', JSON.stringify(payloadObj, null, 2));
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(function() { controller.abort(); }, 10000);
+      console.log('[FCI Leave Encashment Assistant] Payload:', JSON.stringify(payloadObj));
 
       fetch(LEAVE_SHEET_WEBAPP_URL, {
         method: 'POST',
-        mode: 'no-cors',
+        mode: 'cors',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: new URLSearchParams({
           payload: JSON.stringify(payloadObj)
-        }),
-        signal: controller.signal
+        })
       })
       .then(function(response) {
-        clearTimeout(timeoutId);
-        console.log('[FCI Leave Encashment Assistant] Response status: ' + response.status);
         if (!response.ok) {
-          throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+          throw new Error('HTTP ' + response.status);
         }
         return response.text();
       })
       .then(function(text) {
-        console.log('[FCI Leave Encashment Assistant] Raw response from sheet: ' + text);
-        let result;
-        try {
-          result = JSON.parse(text);
-        } catch (e) {
-          const isSuccess = text.toLowerCase().includes('success') ||
-                           text.toLowerCase().includes('added') ||
-                           text.toLowerCase().includes('ok');
-          result = { success: isSuccess, message: text };
-        }
-        
-        if (result && result.success) {
-          console.log('[FCI Leave Encashment Assistant] ✅ Register write-back succeeded: ' + (result.message || 'OK'));
-        } else {
-          const reason = (result && result.message) ? result.message : 'Unknown error';
-          console.warn('[FCI Leave Encashment Assistant] ⚠️ Register write-back FAILED: ' + reason);
-          showLeaveRegisterWarning(reason);
-        }
+        console.log('[FCI Leave Encashment Assistant] ✅ Register write-back succeeded:', text);
       })
       .catch(function(err) {
-        clearTimeout(timeoutId);
-        if (err.name === 'AbortError') {
-          console.warn('[FCI Leave Encashment Assistant] ⏱️ Register write-back timed out (10s) - skipping');
-        } else {
-          console.warn('[FCI Leave Encashment Assistant] ⚠️ Register write-back request failed: ' + err.message);
-          showLeaveRegisterWarning(err.message);
-        }
+        console.warn('[FCI Leave Encashment Assistant] ⚠️ Register write-back failed:', err.message);
+        showLeaveRegisterWarning(err.message);
       });
     }, 100);
   }
