@@ -1,4 +1,4 @@
-// FCI Leave Encashment Assistant - Content Script v1.2
+// FCI Leave Encashment Assistant - Content Script v1.3
 // Runs on the Leave Encashment review page.
 // Detects the stage and either routes to assistant or fills final approval remark.
 
@@ -39,6 +39,18 @@
   const LEAVE_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbzVHpVeSXoC3lmU3SCA7uwoyfexkRKR5MsWkg8Tv0CNx9vH85VpkUiRyx4Cx6N_0qHo/exec';
 
   // ----------------------
+
+  // Helper: Convert ALL-CAPS name to Proper Case (e.g., "RISHIKESH MISHRA" → "Rishikesh Mishra")
+  function toProperCase(str) {
+    if (!str) return '';
+    return str
+      .toLowerCase()
+      .split(' ')
+      .map(function(word) {
+        return word.charAt(0).toUpperCase() + word.slice(1);
+      })
+      .join(' ');
+  }
 
   // Helper: Read a specific field value from the page by its label text
   function getFieldValue(labelText) {
@@ -336,9 +348,14 @@
     attempts = attempts || 0;
 
     // Read values from the page
-    const empName = getFieldValue('Employee Name');
+    const empNameRaw = getFieldValue('Employee Name');
+    const empName = toProperCase(empNameRaw);
     const designation = getFieldValue('Designation');
     const balanceLeaveStr = getFieldValue('Before Balance');
+    
+    // Read Cadre from the page
+    const cadre = getCadre();
+    const fullDesignation = designation + ' (' + cadre + ')';
 
     // Read Encashment from sessionStorage (set by listing page)
     const encashmentStr = sessionStorage.getItem('fci_leave_encashment') || '';
@@ -360,6 +377,8 @@
     console.log('[FCI Leave Encashment Assistant] Balance Leave (D): ' + D);
     console.log('[FCI Leave Encashment Assistant] Encashment Requested (F): ' + F);
     console.log('[FCI Leave Encashment Assistant] Max Encashable (E): ' + E);
+    console.log('[FCI Leave Encashment Assistant] Cadre: ' + cadre);
+    console.log('[FCI Leave Encashment Assistant] Full Designation: ' + fullDesignation);
 
     let remarkText = '';
 
@@ -370,7 +389,7 @@
 
     if (isValid) {
       remarkText = 'Kind attention is drawn towards the leave encashment application under consideration, in this regard following points are noteworthy:- ' +
-        empName + ', ' + designation + ' has earlier not applied for the leave encashment for the calendar year 2026. ' +
+        empName + ', ' + fullDesignation + ' has earlier not applied for the leave encashment for the calendar year 2026. ' +
         'The employee has ' + D + ' days earned leave available in a leave account against which the maximum number of leave encashment that could be sanctioned is ' + Math.round(E) + ' days. ' +
         'Hence, if agreed, as per the employee request the leave encashment application of ' + Math.round(F) + ' days may please be approved.';
     } else {
@@ -396,24 +415,30 @@
     editor.dispatchEvent(new Event('blur', { bubbles: true }));
 
     // --- Send to Google Sheet (non-blocking) ---
-    sendToLeaveSheet(remarkText, empName, designation, D, E, F);
+    sendToLeaveSheet(remarkText, empName, fullDesignation, D, E, F);
 
     console.log('[FCI Leave Encashment Assistant] Final approval remark filled successfully.');
     console.log('[FCI Leave Encashment Assistant] *** Please review the remark and click the Review/Submit button yourself. ***');
   }
 
   // --- Send data to Google Sheet ---
-  function sendToLeaveSheet(remarkText, empName, designation, D, E, F) {
+  function sendToLeaveSheet(remarkText, empName, fullDesignation, D, E, F) {
     if (!LEAVE_SHEET_WEBAPP_URL || LEAVE_SHEET_WEBAPP_URL.indexOf('PASTE_YOUR') === 0) {
       console.log('[FCI Leave Encashment Assistant] Google Sheet Web App URL not configured. Skipping register write-back.');
       return;
     }
 
+    console.log('[FCI Leave Encashment Assistant] Attempting to send data to Google Sheet...');
+    console.log('[FCI Leave Encashment Assistant] Web App URL: ' + LEAVE_SHEET_WEBAPP_URL);
+
     setTimeout(function() {
       const office = sessionStorage.getItem('fci_leave_office') || '';
+      const requestId = sessionStorage.getItem('fci_leave_request_id') || '';
 
       const payloadObj = {
+        requestId: requestId,
         fromHRMS: empName,
+        designation: fullDesignation,
         elAvailable: D,
         encashable: Math.round(E),
         leaveRequested: Math.round(F),
@@ -421,14 +446,14 @@
         finalRemark: remarkText
       };
 
-      console.log('[FCI Leave Encashment Assistant] Sending entry to Leave Encashment sheet...', payloadObj);
+      console.log('[FCI Leave Encashment Assistant] Payload being sent:', JSON.stringify(payloadObj, null, 2));
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(function() { controller.abort(); }, 5000);
+      const timeoutId = setTimeout(function() { controller.abort(); }, 10000);
 
       fetch(LEAVE_SHEET_WEBAPP_URL, {
         method: 'POST',
-        mode: 'cors',
+        mode: 'no-cors',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
@@ -439,6 +464,7 @@
       })
       .then(function(response) {
         clearTimeout(timeoutId);
+        console.log('[FCI Leave Encashment Assistant] Response status: ' + response.status);
         if (!response.ok) {
           throw new Error('HTTP ' + response.status + ': ' + response.statusText);
         }
@@ -467,7 +493,7 @@
       .catch(function(err) {
         clearTimeout(timeoutId);
         if (err.name === 'AbortError') {
-          console.warn('[FCI Leave Encashment Assistant] ⏱️ Register write-back timed out (5s) - skipping');
+          console.warn('[FCI Leave Encashment Assistant] ⏱️ Register write-back timed out (10s) - skipping');
         } else {
           console.warn('[FCI Leave Encashment Assistant] ⚠️ Register write-back request failed: ' + err.message);
           showLeaveRegisterWarning(err.message);
