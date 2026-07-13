@@ -1,4 +1,4 @@
-// FCI Leave Encashment Assistant - Content Script v1.1
+// FCI Leave Encashment Assistant - Content Script v1.2
 // Runs on the Leave Encashment review page.
 // Detects the stage and either routes to assistant or fills final approval remark.
 
@@ -78,7 +78,6 @@
 
   // Helper: Read Office from the Competent Authority section on the review page (fallback)
   function getOfficeFromReviewPage() {
-    // Try to find Office in the Competent Authority table
     const tables = document.querySelectorAll('table');
     for (let table of tables) {
       const headers = table.querySelectorAll('th');
@@ -103,7 +102,6 @@
       }
     }
 
-    // Fallback: try to find Office label
     const officeLabel = document.querySelector('label[for="office"]');
     if (officeLabel) {
       const span = officeLabel.parentElement.querySelector('span');
@@ -115,8 +113,17 @@
     return '';
   }
 
-  // STEP 1: Click View Action History
+  // STEP 1: Click View Action History (only if not already visible)
   function clickViewActionHistory() {
+    const existingTable = document.querySelector('#custom-action-history-tbl tbody');
+    if (existingTable && existingTable.querySelectorAll('tr').length > 0) {
+      console.log('[FCI Leave Encashment Assistant] Action history table already visible on page. Parsing directly...');
+      setTimeout(function() {
+        checkConditionsAndAct(existingTable);
+      }, 1000);
+      return;
+    }
+
     let btn = document.querySelector('a.view-action-history');
     if (!btn) {
       const allLinks = document.querySelectorAll('a, button');
@@ -186,10 +193,8 @@
     console.log('[FCI Leave Encashment Assistant] Cadre: "' + cadre + '"');
 
     // --- READ OFFICE ---
-    // First try from sessionStorage (set by listing page)
     let office = sessionStorage.getItem('fci_leave_office') || '';
 
-    // If not found in sessionStorage, try to read from the review page itself
     if (!office) {
       office = getOfficeFromReviewPage();
       console.log('[FCI Leave Encashment Assistant] Office (from review page fallback): "' + office + '"');
@@ -239,14 +244,12 @@
     // --- Stage priority: Stage 2 → Stage 1 ---
 
     if (stage2) {
-      // Stage 2: Assistant has reviewed → Fill final approval remark directly
       const assistantName = lastAssistantReviewed ? lastAssistantReviewed.employeeName : 'Assistant';
       console.log('[FCI Leave Encashment Assistant] Stage 2: Assistant "' + assistantName + '" has reviewed. Filling final approval remark...');
       highlightTriggerRow(tbody, assistantName, 'Reviewed');
       setTimeout(function() { fillFinalApprovalRemark(); }, 2000);
 
     } else if (stage1) {
-      // Stage 1: Send to assistant for eligibility check
       const assistant = decideAssistant(cadre, office);
       if (assistant) {
         console.log('[FCI Leave Encashment Assistant] Stage 1: Routing to ' + assistant.name + ' (' + assistant.empNo + ')');
@@ -360,14 +363,12 @@
 
     let remarkText = '';
 
-    // Validation checks
-    const check1 = D > 45;
-    const check2 = Math.round(E) === Math.round(F);
+    // VALIDATION CHECK: F <= E
+    const isValid = F <= E;
 
-    console.log('[FCI Leave Encashment Assistant] Check 1 (D > 45): ' + check1);
-    console.log('[FCI Leave Encashment Assistant] Check 2 ((D-30)/2 === F): ' + check2);
+    console.log('[FCI Leave Encashment Assistant] Validation (F <= E): ' + (isValid ? 'PASSED' : 'FAILED'));
 
-    if (check1 && check2) {
+    if (isValid) {
       remarkText = 'Kind attention is drawn towards the leave encashment application under consideration, in this regard following points are noteworthy:- ' +
         empName + ', ' + designation + ' has earlier not applied for the leave encashment for the calendar year 2026. ' +
         'The employee has ' + D + ' days earned leave available in a leave account against which the maximum number of leave encashment that could be sanctioned is ' + Math.round(E) + ' days. ' +
@@ -403,13 +404,11 @@
 
   // --- Send data to Google Sheet ---
   function sendToLeaveSheet(remarkText, empName, designation, D, E, F) {
-    // Skip if URL is not configured
     if (!LEAVE_SHEET_WEBAPP_URL || LEAVE_SHEET_WEBAPP_URL.indexOf('PASTE_YOUR') === 0) {
       console.log('[FCI Leave Encashment Assistant] Google Sheet Web App URL not configured. Skipping register write-back.');
       return;
     }
 
-    // Don't block the main flow - use a timeout
     setTimeout(function() {
       const office = sessionStorage.getItem('fci_leave_office') || '';
 
@@ -540,7 +539,17 @@
     console.log('[FCI Leave Encashment Assistant] Request ID not found or does not start with CH ("' + (requestId || 'none') + '"). Extension will NOT activate on this page.');
   } else {
     console.log('[FCI Leave Encashment Assistant] Request ID confirmed: ' + requestId + '. Activating...');
-    setTimeout(clickViewActionHistory, 2000);
+    
+    const existingTable = document.querySelector('#custom-action-history-tbl tbody');
+    if (existingTable && existingTable.querySelectorAll('tr').length > 0) {
+      console.log('[FCI Leave Encashment Assistant] Action history table already visible on page. Parsing directly...');
+      setTimeout(function() {
+        checkConditionsAndAct(existingTable);
+      }, 1000);
+    } else {
+      console.log('[FCI Leave Encashment Assistant] Action history table not found. Clicking "View Action History"...');
+      setTimeout(clickViewActionHistory, 2000);
+    }
   }
 
 })();
