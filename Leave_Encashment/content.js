@@ -1,4 +1,4 @@
-// FCI Leave Encashment Assistant - Content Script v1.3
+// FCI Leave Encashment Assistant - Content Script v1.4
 // Runs on the Leave Encashment review page.
 // Detects the stage and either routes to assistant or fills final approval remark.
 
@@ -36,7 +36,7 @@
   const OFFICE_TYPE_RO = '4';
 
   // --- Google Sheets register write-back ---
-  const LEAVE_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbwho6hlbbto9jZYmpC8Akrry4cMPq4oWmeS5NMX3VyvdPxLOo0rYPhzvWyHnca7btQm/exec';
+  const LEAVE_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxA_1KrovubuQofFquTnBxS0Lz9o_I5lj9pVYlmjLbMqzCvZqmkQ4SA_gmTqvPpljOj/exec';
 
   // ----------------------
 
@@ -435,7 +435,6 @@
       const requestId = sessionStorage.getItem('fci_leave_request_id') || '';
 
       const payloadObj = {
-        requestId: requestId,
         fromHRMS: empName,
         designation: fullDesignation,
         elAvailable: D,
@@ -447,6 +446,9 @@
 
       console.log('[FCI Leave Encashment Assistant] Payload:', JSON.stringify(payloadObj));
 
+      const controller = new AbortController();
+      const timeoutId = setTimeout(function() { controller.abort(); }, 10000);
+
       fetch(LEAVE_SHEET_WEBAPP_URL, {
         method: 'POST',
         mode: 'cors',
@@ -455,9 +457,11 @@
         },
         body: new URLSearchParams({
           payload: JSON.stringify(payloadObj)
-        })
+        }),
+        signal: controller.signal
       })
       .then(function(response) {
+        clearTimeout(timeoutId);
         if (!response.ok) {
           throw new Error('HTTP ' + response.status);
         }
@@ -467,7 +471,12 @@
         console.log('[FCI Leave Encashment Assistant] ✅ Register write-back succeeded:', text);
       })
       .catch(function(err) {
-        console.warn('[FCI Leave Encashment Assistant] ⚠️ Register write-back failed:', err.message);
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') {
+          console.warn('[FCI Leave Encashment Assistant] ⏱️ Register write-back timed out (10s)');
+        } else {
+          console.warn('[FCI Leave Encashment Assistant] ⚠️ Register write-back failed:', err.message);
+        }
         showLeaveRegisterWarning(err.message);
       });
     }, 100);
