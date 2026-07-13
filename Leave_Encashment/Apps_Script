@@ -1,55 +1,51 @@
-// Leave Encashment - Google Sheets Write-Back Script
+// Leave Encashment - Google Sheets Write-Back Script (Simplified)
 // Deploy as Web App to accept POST requests from Chrome Extension
 
 function doPost(e) {
   try {
-    // Parse the incoming payload
     const payload = JSON.parse(e.parameter.payload);
     
-    // Get the active spreadsheet
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getActiveSheet();
     
-    // Find the next empty row
     const lastRow = sheet.getLastRow();
     const newRow = lastRow + 1;
     
-    // Append data in the order of columns:
-    // A: Salutations, B: From HRMS, C: Name, D: EL Available, 
-    // E: Encashable, F: Leave Requested, G: Review, H: Final Remark
+    // Columns: B, D, E, F, G, H
+    // B: From HRMS, D: EL Available, E: Encashable, 
+    // F: Leave Requested, G: Review, H: Final Remark
     
-    sheet.getRange(newRow, 1).setValue(payload.salutations || '');
     sheet.getRange(newRow, 2).setValue(payload.fromHRMS || '');
-    sheet.getRange(newRow, 3).setValue(payload.name || '');
     sheet.getRange(newRow, 4).setValue(payload.elAvailable || '');
     sheet.getRange(newRow, 5).setValue(payload.encashable || '');
     sheet.getRange(newRow, 6).setValue(payload.leaveRequested || '');
     sheet.getRange(newRow, 7).setValue(payload.review || '');
     sheet.getRange(newRow, 8).setValue(payload.finalRemark || '');
     
-    // Return success response
     return ContentService
       .createTextOutput(JSON.stringify({ success: true, message: 'Entry added successfully' }))
       .setMimeType(ContentService.MimeType.JSON);
     
   } catch (error) {
-    // Return error response
     return ContentService
       .createTextOutput(JSON.stringify({ success: false, message: error.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 }
 
-// Optional: Test function to verify sheet access
+// Test function
 function testWrite() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getActiveSheet();
   const lastRow = sheet.getLastRow();
   const newRow = lastRow + 1;
   
-  sheet.getRange(newRow, 1).setValue('TEST');
-  sheet.getRange(newRow, 2).setValue('Test Entry');
-  sheet.getRange(newRow, 8).setValue('This is a test entry from Apps Script');
+  sheet.getRange(newRow, 2).setValue('Test Employee');
+  sheet.getRange(newRow, 4).setValue('80');
+  sheet.getRange(newRow, 5).setValue('25');
+  sheet.getRange(newRow, 6).setValue('25');
+  sheet.getRange(newRow, 7).setValue('RO CHANDIGARH');
+  sheet.getRange(newRow, 8).setValue('Test remark from Apps Script');
   
   Logger.log('Test entry written to row ' + newRow);
 }
