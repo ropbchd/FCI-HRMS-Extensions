@@ -372,7 +372,7 @@
 
     const D = parseFloat(balanceLeaveStr);
     const F = parseFloat(encashmentStr);
-    const E = (D - 30) / 2;
+    const E = Math.floor((D - 30) / 2);  // FIX: Use floor() to round DOWN, not round()
 
     console.log('[FCI Leave Encashment Assistant] Balance Leave (D): ' + D);
     console.log('[FCI Leave Encashment Assistant] Encashment Requested (F): ' + F);
@@ -390,8 +390,8 @@
     if (isValid) {
       remarkText = 'Kind attention is drawn towards the leave encashment application under consideration, in this regard following points are noteworthy:- ' +
         empName + ', ' + fullDesignation + ' has earlier not applied for the leave encashment for the calendar year 2026. ' +
-        'The employee has ' + D + ' days earned leave available in a leave account against which the maximum number of leave encashment that could be sanctioned is ' + Math.round(E) + ' days. ' +
-        'Hence, if agreed, as per the employee request the leave encashment application of ' + Math.round(F) + ' days may please be approved.';
+        'The employee has ' + D + ' days earned leave available in a leave account against which the maximum number of leave encashment that could be sanctioned is ' + E + ' days. ' +
+        'Hence, if agreed, as per the employee request the leave encashment application of ' + F + ' days may please be approved.';
     } else {
       remarkText = 'Kindly re-check the requested no. of leaves to be encashed.';
     }
@@ -438,8 +438,8 @@
         fromHRMS: empName,
         designation: fullDesignation,
         elAvailable: D,
-        encashable: Math.round(E),
-        leaveRequested: Math.round(F),
+        encashable: E,  // FIX: Use E directly (already floored), not Math.round(E)
+        leaveRequested: F,
         review: office || '',
         finalRemark: remarkText
       };

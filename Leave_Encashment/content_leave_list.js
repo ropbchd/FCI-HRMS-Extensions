@@ -1,7 +1,7 @@
-// FCI Leave Encashment Assistant - List Page Script v1.1
+// FCI Leave Encashment Assistant - List Page Script v1.2
 // Runs on the Leave Encashment Approval/Reviewer Landing page.
 // Reads Office and Encashment from the first row, stores them in sessionStorage,
-// then clicks the square button to open the request detail page.
+// waits 2 seconds, then clicks the square button to open the request detail page.
 
 (function () {
 
@@ -107,18 +107,23 @@
       return;
     }
 
-    console.log(LOG + ' Clicking square button to open request details for: ' + requestId);
+    console.log(LOG + ' Will open request details for: ' + requestId + ' in 2 seconds...');
+    console.log(LOG + ' *** Click the "eye" button now if you want to process a different request ***');
     
     // Set flag so the detail page script knows this was triggered by the extension
     sessionStorage.setItem('fci_leave_detail_triggered', 'yes');
     
-    // Use window.location.href instead of click() for more reliable navigation
-    const href = squareButton.href || squareButton.getAttribute('href');
-    if (href) {
-      window.location.href = href;
-    } else {
-      squareButton.click();
-    }
+    // WAIT 2 SECONDS before clicking — gives user time to manually select a different request
+    setTimeout(function() {
+      console.log(LOG + ' Clicking square button to open request details for: ' + requestId);
+      
+      const href = squareButton.href || squareButton.getAttribute('href');
+      if (href) {
+        window.location.href = href;
+      } else {
+        squareButton.click();
+      }
+    }, 2000);
 
   }
 
