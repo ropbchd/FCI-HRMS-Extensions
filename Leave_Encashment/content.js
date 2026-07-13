@@ -370,9 +370,10 @@
       return;
     }
 
+    // Calculate values
     const D = parseFloat(balanceLeaveStr);
     const F = parseFloat(encashmentStr);
-    const E = Math.floor((D - 30) / 2);  // FIX: Use floor() to round DOWN, not round()
+    const E = (D - 30) / 2;  // exact value: 38.5
 
     console.log('[FCI Leave Encashment Assistant] Balance Leave (D): ' + D);
     console.log('[FCI Leave Encashment Assistant] Encashment Requested (F): ' + F);
@@ -438,7 +439,7 @@
         fromHRMS: empName,
         designation: fullDesignation,
         elAvailable: D,
-        encashable: E,  // FIX: Use E directly (already floored), not Math.round(E)
+        encashable: E,  // exact decimal: 38.5
         leaveRequested: F,
         review: office || '',
         finalRemark: remarkText
