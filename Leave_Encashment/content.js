@@ -1,4 +1,4 @@
-// FCI Leave Encashment Assistant - Content Script v1.0
+// FCI Leave Encashment Assistant - Content Script v1.1
 // Runs on the Leave Encashment review page.
 // Detects the stage and either routes to assistant or fills final approval remark.
 
@@ -76,6 +76,45 @@
     return getFieldValueByFor('cadre') || getFieldValue('Cadre');
   }
 
+  // Helper: Read Office from the Competent Authority section on the review page (fallback)
+  function getOfficeFromReviewPage() {
+    // Try to find Office in the Competent Authority table
+    const tables = document.querySelectorAll('table');
+    for (let table of tables) {
+      const headers = table.querySelectorAll('th');
+      let officeIndex = -1;
+      for (let i = 0; i < headers.length; i++) {
+        if (headers[i].textContent.trim().toUpperCase() === 'OFFICE') {
+          officeIndex = i;
+          break;
+        }
+      }
+      if (officeIndex !== -1) {
+        const rows = table.querySelectorAll('tbody tr');
+        for (let row of rows) {
+          const cells = row.querySelectorAll('td');
+          if (cells.length > officeIndex) {
+            const office = cells[officeIndex].textContent.trim();
+            if (office) {
+              return office;
+            }
+          }
+        }
+      }
+    }
+
+    // Fallback: try to find Office label
+    const officeLabel = document.querySelector('label[for="office"]');
+    if (officeLabel) {
+      const span = officeLabel.parentElement.querySelector('span');
+      if (span) {
+        return span.textContent.trim();
+      }
+    }
+    
+    return '';
+  }
+
   // STEP 1: Click View Action History
   function clickViewActionHistory() {
     let btn = document.querySelector('a.view-action-history');
@@ -146,9 +185,17 @@
     const cadre = getCadre();
     console.log('[FCI Leave Encashment Assistant] Cadre: "' + cadre + '"');
 
-    // --- READ OFFICE FROM SESSIONSTORAGE (set by listing page) ---
-    const office = sessionStorage.getItem('fci_leave_office') || '';
-    console.log('[FCI Leave Encashment Assistant] Office (from listing page): "' + office + '"');
+    // --- READ OFFICE ---
+    // First try from sessionStorage (set by listing page)
+    let office = sessionStorage.getItem('fci_leave_office') || '';
+
+    // If not found in sessionStorage, try to read from the review page itself
+    if (!office) {
+      office = getOfficeFromReviewPage();
+      console.log('[FCI Leave Encashment Assistant] Office (from review page fallback): "' + office + '"');
+    }
+
+    console.log('[FCI Leave Encashment Assistant] Office (final): "' + office + '"');
 
     // --- Check STAGE 1 ---
     let lastDispatchedIndex = -1;

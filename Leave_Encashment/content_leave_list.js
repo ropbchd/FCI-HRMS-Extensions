@@ -1,4 +1,4 @@
-// FCI Leave Encashment Assistant - List Page Script v1.0
+// FCI Leave Encashment Assistant - List Page Script v1.1
 // Runs on the Leave Encashment Approval/Reviewer Landing page.
 // Reads Office and Encashment from the first row, stores them in sessionStorage,
 // then clicks the square button to open the request detail page.
@@ -20,7 +20,13 @@
 
     const allCells = firstRow.querySelectorAll('td');
     
-    // Column indices:
+    // Log all cells to debug column indices
+    console.log(LOG + ' All cells in first row:');
+    for (let i = 0; i < allCells.length; i++) {
+      console.log(LOG + '  Cell ' + i + ': "' + allCells[i].textContent.trim() + '"');
+    }
+
+    // Column indices (based on screenshot):
     // 0: ACTION (square button + review button)
     // 1: REQUEST ID
     // 2: OFFICE (place of posting)
@@ -45,29 +51,38 @@
     }
 
     console.log(LOG + ' Request ID: ' + requestId);
-    console.log(LOG + ' Office (place of posting): ' + office);
-    console.log(LOG + ' Encashment (No. of Leave to be Encashed): ' + encashment);
+    console.log(LOG + ' Office (place of posting): "' + office + '"');
+    console.log(LOG + ' Encashment (No. of Leave to be Encashed): "' + encashment + '"');
 
-    // Store values in sessionStorage for use on subsequent pages
+    // Store values in sessionStorage
     sessionStorage.setItem('fci_leave_request_id', requestId);
     sessionStorage.setItem('fci_leave_office', office);
     sessionStorage.setItem('fci_leave_encashment', encashment);
+
+    // Verify storage
+    console.log(LOG + ' Stored in sessionStorage:');
+    console.log(LOG + '  fci_leave_office: "' + sessionStorage.getItem('fci_leave_office') + '"');
+    console.log(LOG + '  fci_leave_encashment: "' + sessionStorage.getItem('fci_leave_encashment') + '"');
 
     // Find the square button in the first cell (ACTION column)
     const firstCell = allCells[0];
     let squareButton = null;
 
     const allLinks = firstCell ? firstCell.querySelectorAll('a, button') : [];
+    console.log(LOG + ' Found ' + allLinks.length + ' links/buttons in ACTION column');
+
     for (let el of allLinks) {
       const icon = el.querySelector('i');
       if (icon) {
         const iconClass = icon.className || '';
+        console.log(LOG + '  Icon class: "' + iconClass + '"');
         if (iconClass.includes('fa-square') || 
             iconClass.includes('fa-th') || 
             iconClass.includes('fa-window-maximize') ||
             iconClass.includes('fa-chevron-right') ||
             iconClass.includes('fa-eye')) {
           squareButton = el;
+          console.log(LOG + '  Found square button by icon');
           break;
         }
       }
@@ -76,6 +91,7 @@
           title.toLowerCase().includes('detail') ||
           title.toLowerCase().includes('open')) {
         squareButton = el;
+        console.log(LOG + '  Found square button by title: "' + title + '"');
         break;
       }
     }
@@ -83,6 +99,7 @@
     // Fallback: if no square button found, try the second button in the cell
     if (!squareButton && allLinks.length >= 2) {
       squareButton = allLinks[1];
+      console.log(LOG + '  Using fallback: second button in cell');
     }
 
     if (!squareButton) {
@@ -95,8 +112,13 @@
     // Set flag so the detail page script knows this was triggered by the extension
     sessionStorage.setItem('fci_leave_detail_triggered', 'yes');
     
-    // Navigate to the detail page by clicking the square button
-    squareButton.click();
+    // Use window.location.href instead of click() for more reliable navigation
+    const href = squareButton.href || squareButton.getAttribute('href');
+    if (href) {
+      window.location.href = href;
+    } else {
+      squareButton.click();
+    }
 
   }
 

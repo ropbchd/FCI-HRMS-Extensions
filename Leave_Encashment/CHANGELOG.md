@@ -6,7 +6,33 @@
 
 
 
-\## v1.0 — July 2026 (Current)
+\## v1.1 — July 2026 (Current)
+
+
+
+\*\*Bug fix: Office not being read from listing page\*\*
+
+
+
+\- Fixed issue where Office (place of posting) was not being stored correctly from the listing page, causing Stage 1 routing to fail for Depot cadre requests.
+
+\- Added detailed logging in `content\_leave\_list.js` to debug column indices and verify sessionStorage is set before navigation.
+
+\- Added fallback in `content.js` to read Office from the Competent Authority section on the review page if sessionStorage is empty.
+
+\- Updated navigation in `content\_leave\_list.js` to use `window.location.href` instead of `click()` for more reliable navigation.
+
+
+
+\*\*Files changed:\*\* `content\_leave\_list.js`, `content.js`
+
+
+
+\---
+
+
+
+\## v1.0 — July 2026
 
 
 
