@@ -186,6 +186,13 @@
       } else if (attempts >= 40) {
         clearInterval(interval);
         console.warn('[FCI Leave Encashment Assistant] Could not find "' + targetValue + '" in #' + selectId + ' after 20 seconds.');
+        console.warn('[FCI Leave Encashment Assistant] Available options:');
+        const selectEl2 = document.getElementById(selectId);
+        if (selectEl2) {
+          selectEl2.querySelectorAll('option').forEach(o => {
+            console.warn('  "' + o.textContent.trim() + '"');
+          });
+        }
       }
     }, 500);
   }

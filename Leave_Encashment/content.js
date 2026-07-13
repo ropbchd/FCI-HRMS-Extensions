@@ -7,14 +7,12 @@
   // --- CONFIGURATION ---
 
   // STAGE 1 trigger: Last Dispatched = MAYURESH KUMAR, next = AMIT KUMAR SINGH (Pending Review, N/A)
-  // Action: Add Reviewer = Assistant (MADHU/DIVYA/VISHALI based on Cadre + Office)
   const STAGE1_DISPATCHER_NAME  = 'MAYURESH KUMAR';
   const STAGE1_NEXT_NAME        = 'AMIT KUMAR SINGH';
   const STAGE1_NEXT_ACTION      = 'Pending Review';
   const STAGE1_NEXT_REMARK      = 'N/A';
 
   // STAGE 2 trigger: Last Reviewed = Assistant, next = AMIT KUMAR SINGH (Pending Review, N/A)
-  // Action: Fill Reviewer Remarks directly on this page
   const STAGE2_NEXT_NAME        = 'AMIT KUMAR SINGH';
   const STAGE2_NEXT_ACTION      = 'Pending Review';
   const STAGE2_NEXT_REMARK      = 'N/A';
@@ -35,10 +33,10 @@
   const STAGE1_REMARK = 'Kindly check the eligibility of the request and verify the details.';
 
   // Office Type values on the Add Reviewer page
-  const OFFICE_TYPE_RO = '4';   // value="4" = RO
+  const OFFICE_TYPE_RO = '4';
 
   // --- Google Sheets register write-back ---
-  const LEAVE_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbzoqVT3PbQd2wVuhuB9hpufIdGASYTMdmE62g6ZQab6VQIlpzyDSbwPuaOnSmLbtg5m/exec';
+  const LEAVE_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbzVHpVeSXoC3lmU3SCA7uwoyfexkRKR5MsWkg8Tv0CNx9vH85VpkUiRyx4Cx6N_0qHo/exec';
 
   // ----------------------
 
@@ -202,7 +200,6 @@
 
     } else if (stage1) {
       // Stage 1: Send to assistant for eligibility check
-      // Use Cadre from page and Office from sessionStorage
       const assistant = decideAssistant(cadre, office);
       if (assistant) {
         console.log('[FCI Leave Encashment Assistant] Stage 1: Routing to ' + assistant.name + ' (' + assistant.empNo + ')');
@@ -323,12 +320,9 @@
     console.log('[FCI Leave Encashment Assistant] Check 1 (D > 45): ' + check1);
     console.log('[FCI Leave Encashment Assistant] Check 2 ((D-30)/2 === F): ' + check2);
 
-    // Determine salutation
-    const salutation = determineSalutation(empName);
-
     if (check1 && check2) {
       remarkText = 'Kind attention is drawn towards the leave encashment application under consideration, in this regard following points are noteworthy:- ' +
-        salutation + ' ' + empName + ', ' + designation + ' has earlier not applied for the leave encashment for the calendar year 2026. ' +
+        empName + ', ' + designation + ' has earlier not applied for the leave encashment for the calendar year 2026. ' +
         'The employee has ' + D + ' days earned leave available in a leave account against which the maximum number of leave encashment that could be sanctioned is ' + Math.round(E) + ' days. ' +
         'Hence, if agreed, as per the employee request the leave encashment application of ' + Math.round(F) + ' days may please be approved.';
     } else {
@@ -360,34 +354,6 @@
     console.log('[FCI Leave Encashment Assistant] *** Please review the remark and click the Review/Submit button yourself. ***');
   }
 
-  // --- Determine Salutation (Sh./Ms.) based on employee name ---
-  function determineSalutation(name) {
-    const upperName = name.toUpperCase();
-    // Female-coded names (common patterns)
-    const femaleIndicators = [' KUMARI ', ' DEVI ', ' KAUR ', ' SHARMA '];
-    const femaleNames = ['SANGEETA', 'ADITI', 'ARPITA', 'NEHA', 'POOJA', 'RITU', 'TANYA', 'ANITA', 'SUNITA', 'KIRAN', 'PARVATI', 'SHOBHA', 'TANIYA'];
-    
-    for (let indicator of femaleIndicators) {
-      if (upperName.includes(indicator)) {
-        return 'Ms.';
-      }
-    }
-    
-    for (let fName of femaleNames) {
-      if (upperName.includes(fName)) {
-        return 'Ms.';
-      }
-    }
-    
-    // Also check for "Ms." in the name itself
-    if (upperName.includes('MS.') || upperName.includes(' MS ')) {
-      return 'Ms.';
-    }
-    
-    // Default to Sh. for male or unknown
-    return 'Sh.';
-  }
-
   // --- Send data to Google Sheet ---
   function sendToLeaveSheet(remarkText, empName, designation, D, E, F) {
     // Skip if URL is not configured
@@ -398,14 +364,10 @@
 
     // Don't block the main flow - use a timeout
     setTimeout(function() {
-      const requestId = sessionStorage.getItem('fci_leave_request_id') || getFieldValue('Request ID') || '';
       const office = sessionStorage.getItem('fci_leave_office') || '';
-      const salutation = determineSalutation(empName);
 
       const payloadObj = {
-        salutations: salutation,
         fromHRMS: empName,
-        name: empName,
         elAvailable: D,
         encashable: Math.round(E),
         leaveRequested: Math.round(F),

@@ -11,7 +11,6 @@
 
   function processFirstRow() {
 
-    // Table ID from the page: DataTables_Table_0
     const firstRow = document.querySelector('#DataTables_Table_0 tbody tr:first-child');
 
     if (!firstRow) {
@@ -21,7 +20,7 @@
 
     const allCells = firstRow.querySelectorAll('td');
     
-    // Column indices (based on screenshot):
+    // Column indices:
     // 0: ACTION (square button + review button)
     // 1: REQUEST ID
     // 2: OFFICE (place of posting)
