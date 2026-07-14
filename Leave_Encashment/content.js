@@ -1,4 +1,4 @@
-// FCI Leave Encashment Assistant - Content Script v1.5
+// FCI Leave Encashment Assistant - Content Script v1.6
 // Runs on the Leave Encashment review page.
 // Detects the stage and either routes to assistant or fills final approval remark.
 
@@ -126,6 +126,23 @@
     }
     
     return '';
+  }
+
+  // --- Add floating "Open Sheet" button on review page ---
+  function addOpenSheetButton() {
+    if (document.getElementById('fci-open-sheet-btn')) return;
+    
+    const btn = document.createElement('button');
+    btn.id = 'fci-open-sheet-btn';
+    btn.textContent = '📊 Open Encashment Sheet';
+    btn.style.cssText = 'position:fixed;bottom:20px;left:20px;z-index:99999;background:#026636;color:#fff;padding:10px 16px;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,0.2);';
+    
+    btn.addEventListener('click', function() {
+      window.open(GOOGLE_SHEET_URL, '_blank');
+    });
+    
+    document.body.appendChild(btn);
+    console.log('[FCI Leave Encashment Assistant] Added "Open Encashment Sheet" button.');
   }
 
   // STEP 1: Click View Action History (only if not already visible)
@@ -449,9 +466,6 @@
 
       console.log('[FCI Leave Encashment Assistant] Payload:', JSON.stringify(payloadObj));
 
-      // Open Google Sheet in a new tab for verification (only once per session)
-      openGoogleSheetForVerification();
-
       const controller = new AbortController();
       const timeoutId = setTimeout(function() { controller.abort(); }, 10000);
 
@@ -475,6 +489,9 @@
       })
       .then(function(text) {
         console.log('[FCI Leave Encashment Assistant] ✅ Register write-back succeeded:', text);
+        
+        // --- Open Google Sheet ONLY after successful write-back ---
+        openGoogleSheetForVerification();
       })
       .catch(function(err) {
         clearTimeout(timeoutId);
@@ -490,14 +507,14 @@
 
   // --- Open Google Sheet in new tab for verification ---
   function openGoogleSheetForVerification() {
-    // Check if we already opened the sheet in this session
+    // Check if we already opened the sheet for this request
     const sheetOpened = sessionStorage.getItem('fci_sheet_opened');
     if (sheetOpened === 'yes') {
-      console.log('[FCI Leave Encashment Assistant] Google Sheet already opened in this session. Skipping.');
+      console.log('[FCI Leave Encashment Assistant] Google Sheet already opened for this request. Skipping.');
       return;
     }
 
-    console.log('[FCI Leave Encashment Assistant] Opening Google Sheet for verification...');
+    console.log('[FCI Leave Encashment Assistant] ✅ Write-back successful. Opening Google Sheet for verification...');
 
     // Open in new tab
     const newTab = window.open(GOOGLE_SHEET_URL, '_blank');
@@ -570,10 +587,17 @@
   }
 
   const requestId = getRequestId();
+  
+  // Reset sheet flag for each new request so sheet opens every time
+  sessionStorage.removeItem('fci_sheet_opened');
+
   if (!requestId || !requestId.startsWith('CH')) {
     console.log('[FCI Leave Encashment Assistant] Request ID not found or does not start with CH ("' + (requestId || 'none') + '"). Extension will NOT activate on this page.');
   } else {
     console.log('[FCI Leave Encashment Assistant] Request ID confirmed: ' + requestId + '. Activating...');
+    
+    // Add floating "Open Sheet" button
+    addOpenSheetButton();
     
     const existingTable = document.querySelector('#custom-action-history-tbl tbody');
     if (existingTable && existingTable.querySelectorAll('tr').length > 0) {
