@@ -1,4 +1,4 @@
-// FCI Leave Encashment Assistant - Content Script v1.4
+// FCI Leave Encashment Assistant - Content Script v1.5
 // Runs on the Leave Encashment review page.
 // Detects the stage and either routes to assistant or fills final approval remark.
 
@@ -38,9 +38,12 @@
   // --- Google Sheets register write-back ---
   const LEAVE_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxA_1KrovubuQofFquTnBxS0Lz9o_I5lj9pVYlmjLbMqzCvZqmkQ4SA_gmTqvPpljOj/exec';
 
+  // Google Sheet URL for verification (direct link to "Encashment" sheet)
+  const GOOGLE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1Dc268O4PTdLiiSJDBaIFlxllJyAIXxU4GUkrfDHkujU/edit?gid=744405886#gid=744405886';
+
   // ----------------------
 
-  // Helper: Convert ALL-CAPS name to Proper Case (e.g., "RISHIKESH MISHRA" → "Rishikesh Mishra")
+  // Helper: Convert ALL-CAPS name to Proper Case
   function toProperCase(str) {
     if (!str) return '';
     return str
@@ -370,10 +373,9 @@
       return;
     }
 
-    // Calculate values
     const D = parseFloat(balanceLeaveStr);
     const F = parseFloat(encashmentStr);
-    const E = (D - 30) / 2;  // exact value: 38.5
+    const E = (D - 30) / 2;  // Exact decimal, no rounding
 
     console.log('[FCI Leave Encashment Assistant] Balance Leave (D): ' + D);
     console.log('[FCI Leave Encashment Assistant] Encashment Requested (F): ' + F);
@@ -439,13 +441,16 @@
         fromHRMS: empName,
         designation: fullDesignation,
         elAvailable: D,
-        encashable: E,  // exact decimal: 38.5
+        encashable: E,
         leaveRequested: F,
         review: office || '',
         finalRemark: remarkText
       };
 
       console.log('[FCI Leave Encashment Assistant] Payload:', JSON.stringify(payloadObj));
+
+      // Open Google Sheet in a new tab for verification (only once per session)
+      openGoogleSheetForVerification();
 
       const controller = new AbortController();
       const timeoutId = setTimeout(function() { controller.abort(); }, 10000);
@@ -481,6 +486,29 @@
         showLeaveRegisterWarning(err.message);
       });
     }, 100);
+  }
+
+  // --- Open Google Sheet in new tab for verification ---
+  function openGoogleSheetForVerification() {
+    // Check if we already opened the sheet in this session
+    const sheetOpened = sessionStorage.getItem('fci_sheet_opened');
+    if (sheetOpened === 'yes') {
+      console.log('[FCI Leave Encashment Assistant] Google Sheet already opened in this session. Skipping.');
+      return;
+    }
+
+    console.log('[FCI Leave Encashment Assistant] Opening Google Sheet for verification...');
+
+    // Open in new tab
+    const newTab = window.open(GOOGLE_SHEET_URL, '_blank');
+
+    if (newTab) {
+      console.log('[FCI Leave Encashment Assistant] ✅ Google Sheet opened in new tab.');
+      sessionStorage.setItem('fci_sheet_opened', 'yes');
+    } else {
+      console.warn('[FCI Leave Encashment Assistant] ⚠️ Could not open Google Sheet — popup blocker may be active.');
+      showLeaveRegisterWarning('Could not open Google Sheet — allow popups for this site');
+    }
   }
 
   // --- Show warning banner on the page if write-back fails ---
