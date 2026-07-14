@@ -1,7 +1,7 @@
 // FCI Leave Encashment Assistant - List Page Script v1.2
 // Runs on the Leave Encashment Approval/Reviewer Landing page.
 // Reads Office and Encashment from the first row, stores them in sessionStorage,
-// waits 2 seconds, then clicks the square button to open the request detail page.
+// waits 2 seconds, then clicks the review button to open the request detail page.
 
 (function () {
 
@@ -64,46 +64,73 @@
     console.log(LOG + '  fci_leave_office: "' + sessionStorage.getItem('fci_leave_office') + '"');
     console.log(LOG + '  fci_leave_encashment: "' + sessionStorage.getItem('fci_leave_encashment') + '"');
 
-    // Find the square button in the first cell (ACTION column)
+    // Find the REVIEW button in the first cell (ACTION column)
     const firstCell = allCells[0];
-    let squareButton = null;
+    let reviewButton = null;   // Button that opens workflow/review/* (action page)
+    let viewButton = null;     // Button that opens approval-view/* (read-only page)
 
     const allLinks = firstCell ? firstCell.querySelectorAll('a, button') : [];
     console.log(LOG + ' Found ' + allLinks.length + ' links/buttons in ACTION column');
 
+    // First pass: identify each button by its icon class and href
     for (let el of allLinks) {
       const icon = el.querySelector('i');
+      const href = el.href || el.getAttribute('href') || '';
+      
       if (icon) {
         const iconClass = icon.className || '';
-        console.log(LOG + '  Icon class: "' + iconClass + '"');
+        console.log(LOG + '  Icon class: "' + iconClass + '" | href: "' + href + '"');
+        
+        // Eye icon = read-only view (approval-view/*) — skip this, only use as fallback
+        if (iconClass.includes('fa-eye')) {
+          viewButton = el;
+          console.log(LOG + '  Found VIEW button (eye icon) — will skip');
+          continue;
+        }
+        
+        // External link / square / arrow icon = actual review page (workflow/review/*) — USE THIS
         if (iconClass.includes('fa-square') || 
             iconClass.includes('fa-th') || 
             iconClass.includes('fa-window-maximize') ||
             iconClass.includes('fa-chevron-right') ||
-            iconClass.includes('fa-eye')) {
-          squareButton = el;
-          console.log(LOG + '  Found square button by icon');
+            iconClass.includes('fa-external-link') ||
+            iconClass.includes('fa-arrow-right') ||
+            iconClass.includes('fa-share')) {
+          reviewButton = el;
+          console.log(LOG + '  Found REVIEW button (external link icon) — WILL USE THIS');
           break;
         }
       }
-      const title = el.getAttribute('title') || el.getAttribute('aria-label') || '';
-      if (title.toLowerCase().includes('view') || 
-          title.toLowerCase().includes('detail') ||
-          title.toLowerCase().includes('open')) {
-        squareButton = el;
-        console.log(LOG + '  Found square button by title: "' + title + '"');
+      
+      // Also check href directly: workflow/review/* is the action page
+      if (href.includes('/workflow/review/')) {
+        reviewButton = el;
+        console.log(LOG + '  Found REVIEW button by href: "' + href + '" — WILL USE THIS');
         break;
+      }
+      
+      // approval-view/* is the read-only page
+      if (href.includes('/approval-view/')) {
+        viewButton = el;
+        console.log(LOG + '  Found VIEW button by href: "' + href + '" — will skip');
       }
     }
 
-    // Fallback: if no square button found, try the second button in the cell
+    // Prefer review button (workflow/review/*), fallback to view button (approval-view/*)
+    let squareButton = reviewButton || viewButton;
+
+    // Fallback: if still nothing found, try the second link in the cell
     if (!squareButton && allLinks.length >= 2) {
-      squareButton = allLinks[1];
-      console.log(LOG + '  Using fallback: second button in cell');
+      const secondLink = allLinks[1];
+      const secondHref = secondLink.href || secondLink.getAttribute('href') || '';
+      if (secondHref.includes('/workflow/review/') || !secondHref.includes('/approval-view/')) {
+        squareButton = secondLink;
+        console.log(LOG + '  Using fallback: second button in cell (review page)');
+      }
     }
 
     if (!squareButton) {
-      console.warn(LOG + ' Square button not found in first row.');
+      console.warn(LOG + ' Review button not found in first row.');
       return;
     }
 
@@ -115,7 +142,7 @@
     
     // WAIT 2 SECONDS before clicking — gives user time to manually select a different request
     setTimeout(function() {
-      console.log(LOG + ' Clicking square button to open request details for: ' + requestId);
+      console.log(LOG + ' Clicking review button to open request details for: ' + requestId);
       
       const href = squareButton.href || squareButton.getAttribute('href');
       if (href) {
