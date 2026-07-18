@@ -1,7 +1,7 @@
 // FCI NOC Assistant - Content Script
 // Runs on every NOC review page.
 // Checks action history and routes to the correct next step.
-// v4.4 — BALJIT-Centric Two-Factor Vigilance Gate
+// v4.4 — BALJIT-Centric Two-Factor Vigilance Gate + Multi-Page Pagination Fix
 
 (function () {
 
@@ -251,7 +251,91 @@
     }
   }
 
-  // STEP 2: Wait for table to populate
+  // --- FIX 6: Multi-Page Pagination ---
+  // Parse a single page's tbody into entries array
+  function parsePageEntries(tbody) {
+    const allRows = tbody.querySelectorAll('tr');
+    const pageEntries = [];
+    let currentEntry = null;
+
+    for (let row of allRows) {
+      const cells = row.querySelectorAll('td');
+      if (cells.length === 8) {
+        currentEntry = {
+          slNo:         cells[0].textContent.trim(),
+          actionTaken:  cells[3].textContent.trim(),
+          employeeName: cells[4].textContent.trim(),
+          designation:  cells[5].textContent.trim(),
+          actionOffice: cells[2] ? cells[2].textContent.trim() : '',
+          employeeNumber: cells[4].textContent.match(/\d{6}/) ? cells[4].textContent.match(/\d{6}/)[0] : '',
+          remark:       ''
+        };
+        pageEntries.push(currentEntry);
+      } else if (cells.length === 1 && cells[0].colSpan === 8) {
+        const fullText = cells[0].textContent.trim();
+        if (fullText.startsWith('REMARKS:') && currentEntry) {
+          currentEntry.remark = fullText.replace('REMARKS:', '').trim();
+        }
+      }
+    }
+    return pageEntries;
+  }
+
+  // Get total number of pages from pagination controls
+  function getTotalPages() {
+    const paginateDivs = document.querySelectorAll('[id$="_paginate"], .dataTables_paginate, .pagination');
+    let paginateDiv = null;
+    for (let div of paginateDivs) {
+      if (div.querySelectorAll('a, span').length > 0) {
+        paginateDiv = div;
+        break;
+      }
+    }
+    if (!paginateDiv) return 1;
+
+    const pageLinks = paginateDiv.querySelectorAll('a, span');
+    let highestNum = 0;
+    for (let link of pageLinks) {
+      const text = link.textContent.trim();
+      const num = parseInt(text);
+      if (!isNaN(num) && text === String(num) && num > highestNum) {
+        highestNum = num;
+      }
+    }
+    return highestNum > 0 ? highestNum : 1;
+  }
+
+  // Click a specific page number in pagination
+  function clickPageNumber(targetPage) {
+    const paginateDivs = document.querySelectorAll('[id$="_paginate"], .dataTables_paginate, .pagination');
+    let paginateDiv = null;
+    for (let div of paginateDivs) {
+      if (div.querySelectorAll('a, span').length > 0) {
+        paginateDiv = div;
+        break;
+      }
+    }
+    if (!paginateDiv) return false;
+
+    const pageLinks = paginateDiv.querySelectorAll('a, span');
+    for (let link of pageLinks) {
+      const text = link.textContent.trim();
+      const num = parseInt(text);
+      if (!isNaN(num) && text === String(num) && num === targetPage) {
+        if (!link.classList.contains('current') && !link.classList.contains('active')) {
+          console.log('[FCI NOC Assistant] Pagination: clicking page ' + targetPage);
+          link.click();
+          return true;
+        } else {
+          console.log('[FCI NOC Assistant] Pagination: already on page ' + targetPage);
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // STEP 2: Wait for table to populate, then collect ALL pages before checking
   function waitForTableAndCheck() {
     let attempts = 0;
     const interval = setInterval(function () {
@@ -265,13 +349,100 @@
           table.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
-        console.log('[FCI NOC Assistant] Step 2: Table populated. Checking conditions...');
-        checkConditionsAndAct(tbody);
+        console.log('[FCI NOC Assistant] Step 2: Table populated. Checking pagination...');
+        const totalPages = getTotalPages();
+        console.log('[FCI NOC Assistant] Total pages: ' + totalPages);
+
+        if (totalPages <= 1) {
+          // Single page — parse directly
+          const entries = parsePageEntries(tbody);
+          console.log('[FCI NOC Assistant] Single page. Entries collected: ' + entries.length);
+          checkConditionsAndAct(entries, tbody);
+        } else {
+          // Multiple pages — collect all pages sequentially
+          collectAllPages(totalPages, function(allEntries) {
+            console.log('[FCI NOC Assistant] All pages collected. Total entries: ' + allEntries.length);
+            // Get the current tbody for highlighting (will be on last page)
+            const finalTbody = document.querySelector('#custom-action-history-tbl tbody');
+            checkConditionsAndAct(allEntries, finalTbody);
+          });
+        }
       } else if (attempts >= 20) {
         clearInterval(interval);
         console.warn('[FCI NOC Assistant] Table did not load in time.');
       }
     }, 500);
+  }
+
+  // Collect entries from all pages sequentially
+  function collectAllPages(totalPages, callback) {
+    let allEntries = [];
+    let currentPage = 1;
+
+    // Parse current page (page 1) first
+    const initialTbody = document.querySelector('#custom-action-history-tbl tbody');
+    if (initialTbody) {
+      const page1Entries = parsePageEntries(initialTbody);
+      allEntries = allEntries.concat(page1Entries);
+      console.log('[FCI NOC Assistant] Page 1 collected: ' + page1Entries.length + ' entries');
+    }
+
+    if (totalPages === 1) {
+      callback(allEntries);
+      return;
+    }
+
+    // Navigate to remaining pages
+    function collectNextPage() {
+      currentPage++;
+      if (currentPage > totalPages) {
+        callback(allEntries);
+        return;
+      }
+
+      const clicked = clickPageNumber(currentPage);
+      if (!clicked) {
+        console.warn('[FCI NOC Assistant] Could not click page ' + currentPage + '. Aborting pagination.');
+        callback(allEntries);
+        return;
+      }
+
+      // Wait for page to re-render after click
+      let attempts = 0;
+      const waitInterval = setInterval(function () {
+        attempts++;
+        const tbody = document.querySelector('#custom-action-history-tbl tbody');
+        if (tbody && tbody.querySelectorAll('tr').length > 0) {
+          // Verify we're on the correct page by checking first row S.No.
+          const firstRow = tbody.querySelector('tr');
+          if (firstRow) {
+            const cells = firstRow.querySelectorAll('td');
+            if (cells.length >= 1) {
+              const slNo = cells[0].textContent.trim();
+              // Expected S.No. for this page: (currentPage-1)*10 + 1
+              const expectedSlNo = (currentPage - 1) * 10 + 1;
+              if (parseInt(slNo) === expectedSlNo || parseInt(slNo) > (currentPage - 2) * 10) {
+                clearInterval(waitInterval);
+                const pageEntries = parsePageEntries(tbody);
+                allEntries = allEntries.concat(pageEntries);
+                console.log('[FCI NOC Assistant] Page ' + currentPage + ' collected: ' + pageEntries.length + ' entries');
+                // Small delay before next page to let DOM settle
+                setTimeout(collectNextPage, 800);
+                return;
+              }
+            }
+          }
+        }
+        if (attempts >= 30) {
+          clearInterval(waitInterval);
+          console.warn('[FCI NOC Assistant] Page ' + currentPage + ' did not load in time. Aborting pagination.');
+          callback(allEntries);
+        }
+      }, 500);
+    }
+
+    // Start collecting from page 2
+    setTimeout(collectNextPage, 1000);
   }
 
   // Helper: Check if ABHIMANYU SWAMI has already reviewed in the action history
@@ -337,32 +508,8 @@
   }
 
   // STEP 3: Parse table and decide which stage we are in
-  function checkConditionsAndAct(tbody) {
-    const allRows = tbody.querySelectorAll('tr');
-    const entries = [];
-    let currentEntry = null;
-
-    for (let row of allRows) {
-      const cells = row.querySelectorAll('td');
-      if (cells.length === 8) {
-        currentEntry = {
-          slNo:         cells[0].textContent.trim(),
-          actionTaken:  cells[3].textContent.trim(),
-          employeeName: cells[4].textContent.trim(),
-          designation:  cells[5].textContent.trim(),
-          actionOffice: cells[2] ? cells[2].textContent.trim() : '',
-          employeeNumber: cells[4].textContent.match(/\d{6}/) ? cells[4].textContent.match(/\d{6}/)[0] : '',
-          remark:       ''
-        };
-        entries.push(currentEntry);
-      } else if (cells.length === 1 && cells[0].colSpan === 8) {
-        const fullText = cells[0].textContent.trim();
-        if (fullText.startsWith('REMARKS:') && currentEntry) {
-          currentEntry.remark = fullText.replace('REMARKS:', '').trim();
-        }
-      }
-    }
-
+  // FIX 6: Signature changed to receive pre-built entries array + tbody for highlighting
+  function checkConditionsAndAct(entries, tbody) {
     // --- READ CADRE AND OFFICE FIRST ---
     const { cadreValue, officeValue, isRoChandigarh } = getCadreAndOffice();
     console.log('[FCI NOC Assistant] Office read from page: "' + officeValue + '"');
@@ -453,6 +600,9 @@
       && afterAssistantReviewed.actionTaken.trim() === STAGE2_NEXT_ACTION
       && afterAssistantReviewed.remark.trim() === STAGE2_NEXT_REMARK;
 
+    // --- Check post-performa flag (needed for Fix 1) ---
+    const isPostPerformaFlag = isPostPerforma(entries, lastAssistantReviewedIndex);
+
     // --- Apply the Sync Gate Matrix (BALJIT as Pole Point) ---
 
     // Stage 3E: BALJIT says NOT CLEAR + Assistant NOT "in order"
@@ -465,10 +615,12 @@
       && baljitClear
       && stage3KeyPresent;
 
-    // MISMATCH Case 1: BALJIT says CLEAR + Assistant NOT "in order"
+    // FIX 1: MISMATCH Case 1 — BALJIT says CLEAR + Assistant NOT "in order"
+    // Guard: Don't mismatch if this is a post-performa case (should go to Stage 1C)
     const mismatchClear = baseConditions
       && baljitClear
-      && !stage3KeyPresent;
+      && !stage3KeyPresent
+      && !isPostPerformaFlag;  // FIX 1: Exclude post-performa cases
 
     // MISMATCH Case 2: BALJIT says NOT CLEAR + Assistant "in order"
     const mismatchNotClear = baseConditions
@@ -479,7 +631,7 @@
     const mismatchAmbiguous = baseConditions
       && baljitAmbiguous;
 
-    // Stage 3B: Assistant found issue (NON-RO) — exclude 3E and mismatch cases
+    // FIX 4: Stage 3B — exclude ALL mismatch cases
     const stage3bAssistantIssue = lastAssistantReviewed
       && !stage3KeyPresent
       && lastAssistantReviewed.remark.trim() !== ''
@@ -488,14 +640,15 @@
       && afterAssistantReviewed.actionTaken.trim() === STAGE2_NEXT_ACTION
       && afterAssistantReviewed.remark.trim() === STAGE2_NEXT_REMARK
       && !stage3e
-      && !mismatchNotClear;
+      && !mismatchNotClear
+      && !mismatchClear
+      && !mismatchAmbiguous;
 
     // Stage 3B only applies when office is NOT RO CHANDIGARH
     const stage3b = stage3bAssistantIssue && !isRoChandigarh;
 
     // --- Check STAGE 3D (RO CHANDIGARH assistant clarification) ---
     const abhimanyuPresent = isAbhimanyuInHistory(entries);
-    const isPostPerformaFlag = isPostPerforma(entries, lastAssistantReviewedIndex);
 
     const stage3d = lastAssistantReviewed
       && !stage3KeyPresent
@@ -507,7 +660,9 @@
       && afterAssistantReviewed.remark.trim() === STAGE2_NEXT_REMARK
       && isRoChandigarh
       && !stage3e
-      && !mismatchNotClear;
+      && !mismatchNotClear
+      && !mismatchClear
+      && !mismatchAmbiguous;
 
     // --- Check STAGE 3C ---
     let lastAmitPendingIndex = -1;
