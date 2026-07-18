@@ -588,7 +588,8 @@
     const baljitStatus = getBaljitStatus(baljitRemark);
     const baljitClear = (baljitStatus === 'clear');
     const baljitNotClear = (baljitStatus === 'notclear');
-    const baljitAmbiguous = (baljitStatus === 'ambiguous' || baljitStatus === 'missing');
+    const baljitMissing = (baljitStatus === 'missing');
+    const baljitAmbiguous = (baljitStatus === 'ambiguous');
 
     console.log('[FCI NOC Assistant] BALJIT status: ' + baljitStatus);
     console.log('[FCI NOC Assistant] BALJIT remark: "' + baljitRemark + '"');
@@ -627,7 +628,7 @@
       && baljitNotClear
       && stage3KeyPresent;
 
-    // MISMATCH Case 3: BALJIT ambiguous/missing + Assistant anything (conservative)
+    // MISMATCH Case 3: BALJIT ambiguous (present but unclear) + Assistant anything (conservative)
     const mismatchAmbiguous = baseConditions
       && baljitAmbiguous;
 

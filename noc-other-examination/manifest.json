@@ -5,7 +5,8 @@
   "description": "Automates NOC request processing on FCI HRMS portal",
   "permissions": ["activeTab", "scripting"],
   "host_permissions": [
-    "https://www.hrmsfci.in/*"
+    "https://www.hrmsfci.in/*",
+    "https://hrmsfci.in/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -17,17 +18,26 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.hrmsfci.in/er/noc/other-examination"],
+      "matches": [
+        "https://www.hrmsfci.in/er/noc/other-examination",
+        "https://hrmsfci.in/er/noc/other-examination"
+      ],
       "js": ["content_noc_list.js"],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://www.hrmsfci.in/workflow/review/*"],
+      "matches": [
+        "https://www.hrmsfci.in/workflow/review/*",
+        "https://hrmsfci.in/workflow/review/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://www.hrmsfci.in/workflow/add-reviewer/*"],
+      "matches": [
+        "https://www.hrmsfci.in/workflow/add-reviewer/*",
+        "https://hrmsfci.in/workflow/add-reviewer/*"
+      ],
       "js": ["content_add_reviewer.js"],
       "run_at": "document_idle",
       "world": "MAIN"

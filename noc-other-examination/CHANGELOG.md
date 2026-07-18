@@ -2,7 +2,7 @@ Changelog — NOC For Other Examination Extension
 
 All changes to this extension are documented here in reverse chronological order.
 
-v4.4 — July 2026 (Current)
+v4.4 — July 2026 (Current) — COMPLETE
 
 New feature: BALJIT-Centric Two-Factor Vigilance Gate
 
@@ -12,37 +12,36 @@ Solution: Re-architected Stage 3/3E detection to use BALJIT SINGH's remark as th
 
 BALJIT "Clear" Detection: Uses BALJIT's standard Hindi phrase सतर्कतादृष्टिकोणसेमुक्तहै (whitespace-normalized) to confirm vigilance clearance.
 
-BALJIT "Not Clear" Detection: Uses existing STAGE3E\_VIGILANCE\_KEYWORDS array (UNDER CONTEMPLATION, NOT CLEAR, PENDING, etc.).
+BALJIT "Not Clear" Detection: Uses existing STAGE3E_VIGILANCE_KEYWORDS array (UNDER CONTEMPLATION, NOT CLEAR, PENDING, etc.).
 
 Sync Gate Matrix (BALJIT as Pole Point):
 
-Table
-
-BALJIT Says	Assistant "in order"?	Result	Action
-
-CLEAR	YES	Stage 3 ✅	Fill approval remark
-
-CLEAR	NO	🔴 MISMATCH	Highlight both rows, NO action
-
-NOT CLEAR	NO	Stage 3E ✅	Fill rejection remark
-
-NOT CLEAR	YES	🔴 MISMATCH	Send back to Assistant with correction remark
+| BALJIT Says | Assistant "in order"? | Result | Action |
+|---|---|---|---|
+| CLEAR | YES | Stage 3 ✅ | Fill approval remark |
+| CLEAR | NO | 🔴 MISMATCH | Highlight both rows, NO action |
+| NOT CLEAR | NO | Stage 3E ✅ | Fill rejection remark |
+| NOT CLEAR | YES | 🔴 MISMATCH | Send back to Assistant with correction remark |
 
 Mismatch handling:
+- BALJIT CLEAR + Assistant NOT "in order": Both rows highlighted (BALJIT red, Assistant orange), no auto-action. Manual review required.
+- BALJIT NOT CLEAR + Assistant "in order": Routes back to the same assistant with remark: "Kindly re-examine the request. As per vigilance records, the concerned employee is not vigilance free."
+- BALJIT ambiguous (present but unclear): Treated as mismatch, both rows highlighted, no auto-action.
+- BALJIT missing (never reviewed): NOT treated as mismatch — normal Stage 3B/3D routing proceeds.
 
-BALJIT CLEAR + Assistant NOT "in order": Both rows highlighted (BALJIT red, Assistant orange), no auto-action. Manual review required.
-
-BALJIT NOT CLEAR + Assistant "in order": Routes back to the same assistant with remark: "Kindly re-examine the request. As per vigilance records, the concerned employee is not vigilance free."
-
-BALJIT ambiguous/missing: Treated as mismatch, both rows highlighted, no auto-action.
-
-New stage: 3mismatch — handled in content\_add\_reviewer.js (RO-based, select employee by name, same as Stage 3D).
-
-Guards added: stage3bAssistantIssue and stage3d now explicitly exclude mismatchNotClear to prevent overlap.
+Fixes applied in v4.4:
+- Fix 6 (CRITICAL): Multi-page pagination — content.js now collects ALL pages of action history before stage detection. Prevents stage detection failure on requests with >10 entries.
+- Fix 3: Manifest updated with both www and non-www domains in all matches and host_permissions.
+- Fix 1: Mismatch guard — mismatchClear excludes post-performa cases (isPostPerformaFlag).
+- Fix 5: 3Mismatch handler added in content_add_reviewer.js alongside 3D (RO-based, select employee by name).
+- Fix 4: Stage guards — 3b/3d/3c explicitly exclude all mismatch cases (mismatchNotClear, mismatchClear, mismatchAmbiguous).
+- Fix 2: Chrome profile isolation explained to user (user-side action for extension interference).
 
 Highlight colors: BALJIT row = red border (#cc0000), Assistant row = orange border (#ff6600) for visual distinction.
 
-Files changed: content.js, content\_add\_reviewer.js
+Files changed: content.js, content_add_reviewer.js, manifest.json, CHANGELOG.md
+
+---
 
 v4.3 — July 2026
 
@@ -60,9 +59,7 @@ Target Office: RO CHANDIGARH
 
 Priority order updated: Stage 3 → Stage 3E → Stage 3B → Stage 3D → Stage 3C → Stage 1D → Stage 2 → Stage 1C → Stage 1B → Stage 1
 
-This fills a critical gap where RO CHANDIGARH requests that required clarification were previously not handled by the extension.
-
-Files changed: content.js, content\_add\_reviewer.js
+Files changed: content.js, content_add_reviewer.js
 
 v4.2 — July 2026
 
@@ -92,7 +89,7 @@ Key guard: The isAbhimanyuInHistory() helper scans all action history entries to
 
 Priority order updated: Stage 3 → Stage 3B → Stage 3C → Stage 2 → Stage 1C → Stage 1B → Stage 1.
 
-content\_add\_reviewer.js requires no changes — Stage 1C uses the same sessionStorage pattern as Stage 1 (select by emp number, not by name).
+content_add_reviewer.js requires no changes — Stage 1C uses the same sessionStorage pattern as Stage 1 (select by emp number, not by name).
 
 Files changed: content.js
 
@@ -102,7 +99,7 @@ Bug fix: Office name whitespace normalisation
 
 Fixed a critical bug where the extension failed to route Stage 2 requests for offices like "DO CHANDIGARH" because the portal stores office names with double spaces (e.g. "DO  CHANDIGARH") which did not match the single-spaced entries in the office lists.
 
-Applied .trim().replace(/\\s+/g, ' ') normalisation at all four office comparison points: isRoChandigarh check, cadre/office read in decideAssistant(), and both DIVYA and VISHALI office list comparisons.
+Applied .trim().replace(/\s+/g, ' ') normalisation at all four office comparison points: isRoChandigarh check, cadre/office read in decideAssistant(), and both DIVYA and VISHALI office list comparisons.
 
 This fix also future-proofs against tabs or non-breaking spaces in office names.
 
@@ -116,13 +113,13 @@ Added Request ID prefix check (NOE) at the entry point of all three content scri
 
 Extension now stays completely silent on any request type other than NOC For Other Examination, even if those pages share the same URL pattern.
 
-content\_noc\_list.js: reads Request ID from table row before clicking Review; aborts if not NOE.
+content_noc_list.js: reads Request ID from table row before clicking Review; aborts if not NOE.
 
 content.js: getRequestId() function scans page elements and body text; activation only proceeds on confirmed NOE prefix.
 
-content\_add\_reviewer.js: body text search for NOE prefix at the very start; returns immediately if not found.
+content_add_reviewer.js: body text search for NOE prefix at the very start; returns immediately if not found.
 
-Files changed: content\_noc\_list.js, content.js, content\_add\_reviewer.js
+Files changed: content_noc_list.js, content.js, content_add_reviewer.js
 
 New feature: Stage 3
 
@@ -140,15 +137,14 @@ v1 — May 2026
 
 Initial working version
 
-content\_noc\_list.js: auto-opens the first Pending Review request on the NOC For Other Examination listing page.
+content_noc_list.js: auto-opens the first Pending Review request on the NOC For Other Examination listing page.
 
 content.js: reads action history, detects Stage 1 (send to ABHIMANYU SWAMI for vigilance clearance), Stage 1B (RO CHANDIGARH variant — send to relevant assistant with performa remark), and Stage 2 (send to assistant for admin clearance based on Cadre and Office routing table).
 
-content\_add\_reviewer.js: fills Office Type, Office, and Reason on the Add Reviewer page using sessionStorage handoff from content.js.
+content_add_reviewer.js: fills Office Type, Office, and Reason on the Add Reviewer page using sessionStorage handoff from content.js.
 
 Safety features: trigger flag, no auto-submission, no-match = no action, highlight before acting.
 
 Assistant routing: MADHU DHAKA (General cadre), DIVYA KORNU (Depot + Group 1 offices), VISHALI MARWAHA (Depot + Group 2 offices).
 
-Files added: all four files (manifest.json, content\_noc\_list.js, content.js, content\_add\_reviewer.js)
-
+Files added: all four files (manifest.json, content_noc_list.js, content.js, content_add_reviewer.js)
