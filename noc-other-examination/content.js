@@ -1,7 +1,7 @@
 // FCI NOC Assistant - Content Script
 // Runs on every NOC review page.
 // Checks action history and routes to the correct next step.
-// v4.4 — BALJIT-Centric Two-Factor Vigilance Gate + Multi-Page Pagination Fix
+// v4.5 — Explicit sessionStorage routing for all stages (content.js as single source of truth)
 
 (function () {
 
@@ -81,6 +81,9 @@
   const OFFICE_TYPE_RO = '4';
   const OFFICE_TYPE_DO = '5';
 
+  // RO CHANDIGARH constant — used by multiple stages
+  const RO_CHANDIGARH = 'RO CHANDIGARH';
+
   // Performa checkpoint: identifies when assistant's review follows a performa request
   const PERFORMA_CHECKPOINT = 'performa provided by the FCI';
 
@@ -110,7 +113,6 @@
   }
 
   // Helper: Check if BALJIT's remark indicates "vigilance clear" (Hindi standard phrase)
-  // Normalizes by removing ALL whitespace before matching
   function isBaljitClear(remark) {
     if (!remark) return false;
     const normalizedRemark = remark.replace(/\s+/g, '');
@@ -136,9 +138,6 @@
     if (!baljitRemark) return 'a <b>vigilance case</b>';
     const upperRemark = baljitRemark.toUpperCase();
     if (upperRemark.includes('UNDER CONTEMPLATION')) {
-      return 'a <b>vigilance case under contemplation</b>';
-    }
-    if (upperRemark.includes('NOT CLEAR') && upperRemark.includes('UNDER CONTEMPLATION')) {
       return 'a <b>vigilance case under contemplation</b>';
     }
     if (upperRemark.includes('PENDING') && upperRemark.includes('CASE')) {
@@ -251,7 +250,7 @@
     }
   }
 
-  // --- FIX 6: Multi-Page Pagination ---
+  // --- Multi-Page Pagination ---
   // Parse a single page's tbody into entries array
   function parsePageEntries(tbody) {
     const allRows = tbody.querySelectorAll('tr');
@@ -354,15 +353,12 @@
         console.log('[FCI NOC Assistant] Total pages: ' + totalPages);
 
         if (totalPages <= 1) {
-          // Single page — parse directly
           const entries = parsePageEntries(tbody);
           console.log('[FCI NOC Assistant] Single page. Entries collected: ' + entries.length);
           checkConditionsAndAct(entries, tbody);
         } else {
-          // Multiple pages — collect all pages sequentially
           collectAllPages(totalPages, function(allEntries) {
             console.log('[FCI NOC Assistant] All pages collected. Total entries: ' + allEntries.length);
-            // Get the current tbody for highlighting (will be on last page)
             const finalTbody = document.querySelector('#custom-action-history-tbl tbody');
             checkConditionsAndAct(allEntries, finalTbody);
           });
@@ -379,7 +375,6 @@
     let allEntries = [];
     let currentPage = 1;
 
-    // Parse current page (page 1) first
     const initialTbody = document.querySelector('#custom-action-history-tbl tbody');
     if (initialTbody) {
       const page1Entries = parsePageEntries(initialTbody);
@@ -392,7 +387,6 @@
       return;
     }
 
-    // Navigate to remaining pages
     function collectNextPage() {
       currentPage++;
       if (currentPage > totalPages) {
@@ -407,26 +401,22 @@
         return;
       }
 
-      // Wait for page to re-render after click
       let attempts = 0;
       const waitInterval = setInterval(function () {
         attempts++;
         const tbody = document.querySelector('#custom-action-history-tbl tbody');
         if (tbody && tbody.querySelectorAll('tr').length > 0) {
-          // Verify we're on the correct page by checking first row S.No.
           const firstRow = tbody.querySelector('tr');
           if (firstRow) {
             const cells = firstRow.querySelectorAll('td');
             if (cells.length >= 1) {
               const slNo = cells[0].textContent.trim();
-              // Expected S.No. for this page: (currentPage-1)*10 + 1
               const expectedSlNo = (currentPage - 1) * 10 + 1;
               if (parseInt(slNo) === expectedSlNo || parseInt(slNo) > (currentPage - 2) * 10) {
                 clearInterval(waitInterval);
                 const pageEntries = parsePageEntries(tbody);
                 allEntries = allEntries.concat(pageEntries);
                 console.log('[FCI NOC Assistant] Page ' + currentPage + ' collected: ' + pageEntries.length + ' entries');
-                // Small delay before next page to let DOM settle
                 setTimeout(collectNextPage, 800);
                 return;
               }
@@ -441,7 +431,6 @@
       }, 500);
     }
 
-    // Start collecting from page 2
     setTimeout(collectNextPage, 1000);
   }
 
@@ -468,7 +457,6 @@
   function highlightMismatch(tbody, baljitEntry, assistantEntry) {
     const allRows = tbody.querySelectorAll('tr');
 
-    // Highlight BALJIT row in red
     if (baljitEntry) {
       for (let row of allRows) {
         const cells = row.querySelectorAll('td');
@@ -485,7 +473,6 @@
       }
     }
 
-    // Highlight Assistant row in orange
     if (assistantEntry) {
       for (let row of allRows) {
         const cells = row.querySelectorAll('td');
@@ -507,8 +494,8 @@
     console.warn('[FCI NOC Assistant] ⚠️ BALJIT row highlighted in RED, Assistant row in ORANGE. Please review manually.');
   }
 
-  // STEP 3: Parse table and decide which stage we are in
-  // FIX 6: Signature changed to receive pre-built entries array + tbody for highlighting
+  // STEP 3: Decide which stage we are in
+  // Receives pre-built entries array + tbody for highlighting
   function checkConditionsAndAct(entries, tbody) {
     // --- READ CADRE AND OFFICE FIRST ---
     const { cadreValue, officeValue, isRoChandigarh } = getCadreAndOffice();
@@ -586,9 +573,8 @@
     const lastBaljit = getLastBaljitEntry(entries);
     const baljitRemark = lastBaljit ? lastBaljit.remark : '';
     const baljitStatus = getBaljitStatus(baljitRemark);
-    const baljitClear = (baljitStatus === 'clear');
+    const baljitClear    = (baljitStatus === 'clear');
     const baljitNotClear = (baljitStatus === 'notclear');
-    const baljitMissing = (baljitStatus === 'missing');
     const baljitAmbiguous = (baljitStatus === 'ambiguous');
 
     console.log('[FCI NOC Assistant] BALJIT status: ' + baljitStatus);
@@ -601,38 +587,30 @@
       && afterAssistantReviewed.actionTaken.trim() === STAGE2_NEXT_ACTION
       && afterAssistantReviewed.remark.trim() === STAGE2_NEXT_REMARK;
 
-    // --- Check post-performa flag (needed for Fix 1) ---
+    // --- Check post-performa flag ---
     const isPostPerformaFlag = isPostPerforma(entries, lastAssistantReviewedIndex);
 
     // --- Apply the Sync Gate Matrix (BALJIT as Pole Point) ---
 
     // Stage 3E: BALJIT says NOT CLEAR + Assistant NOT "in order"
-    const stage3e = baseConditions
-      && baljitNotClear
-      && !stage3KeyPresent;
+    const stage3e = baseConditions && baljitNotClear && !stage3KeyPresent;
 
     // Stage 3: BALJIT says CLEAR + Assistant "in order"
-    const stage3 = baseConditions
-      && baljitClear
-      && stage3KeyPresent;
+    const stage3 = baseConditions && baljitClear && stage3KeyPresent;
 
-    // FIX 1: MISMATCH Case 1 — BALJIT says CLEAR + Assistant NOT "in order"
-    // Guard: Don't mismatch if this is a post-performa case (should go to Stage 1C)
+    // MISMATCH Case 1: BALJIT CLEAR + Assistant NOT "in order" (exclude post-performa)
     const mismatchClear = baseConditions
       && baljitClear
       && !stage3KeyPresent
-      && !isPostPerformaFlag;  // FIX 1: Exclude post-performa cases
+      && !isPostPerformaFlag;
 
-    // MISMATCH Case 2: BALJIT says NOT CLEAR + Assistant "in order"
-    const mismatchNotClear = baseConditions
-      && baljitNotClear
-      && stage3KeyPresent;
+    // MISMATCH Case 2: BALJIT NOT CLEAR + Assistant "in order"
+    const mismatchNotClear = baseConditions && baljitNotClear && stage3KeyPresent;
 
-    // MISMATCH Case 3: BALJIT ambiguous (present but unclear) + Assistant anything (conservative)
-    const mismatchAmbiguous = baseConditions
-      && baljitAmbiguous;
+    // MISMATCH Case 3: BALJIT ambiguous (present but unclear)
+    const mismatchAmbiguous = baseConditions && baljitAmbiguous;
 
-    // FIX 4: Stage 3B — exclude ALL mismatch cases
+    // Stage 3B — exclude ALL mismatch cases, non-RO only
     const stage3bAssistantIssue = lastAssistantReviewed
       && !stage3KeyPresent
       && lastAssistantReviewed.remark.trim() !== ''
@@ -645,10 +623,9 @@
       && !mismatchClear
       && !mismatchAmbiguous;
 
-    // Stage 3B only applies when office is NOT RO CHANDIGARH
     const stage3b = stage3bAssistantIssue && !isRoChandigarh;
 
-    // --- Check STAGE 3D (RO CHANDIGARH assistant clarification) ---
+    // Stage 3D: RO CHANDIGARH assistant clarification — exclude ALL mismatch cases
     const abhimanyuPresent = isAbhimanyuInHistory(entries);
 
     const stage3d = lastAssistantReviewed
@@ -665,7 +642,7 @@
       && !mismatchClear
       && !mismatchAmbiguous;
 
-    // --- Check STAGE 3C ---
+    // Stage 3C
     let lastAmitPendingIndex = -1;
     for (let i = 0; i < entries.length; i++) {
       if (entries[i].employeeName.toUpperCase().includes(STAGE2_NEXT_NAME)
@@ -686,7 +663,7 @@
       && !stage3e
       && !stage3bAssistantIssue;
 
-    // --- STAGE 1D: Technical Error Handler ---
+    // Stage 1D: Technical Error Handler
     let technicalErrorIndex = -1;
     for (let i = 0; i < entries.length; i++) {
       if (entries[i].actionTaken === 'Reviewed' && hasTechnicalError(entries[i].remark)) {
@@ -695,11 +672,9 @@
       }
     }
 
-    const techErrorEntry = technicalErrorIndex !== -1 ? entries[technicalErrorIndex] : null;
-    const afterTechError = technicalErrorIndex !== -1 && technicalErrorIndex + 1 < entries.length 
-      ? entries[technicalErrorIndex + 1] : null;
-    const afterTechError2 = technicalErrorIndex !== -1 && technicalErrorIndex + 2 < entries.length 
-      ? entries[technicalErrorIndex + 2] : null;
+    const techErrorEntry  = technicalErrorIndex !== -1 ? entries[technicalErrorIndex] : null;
+    const afterTechError  = technicalErrorIndex !== -1 && technicalErrorIndex + 1 < entries.length ? entries[technicalErrorIndex + 1] : null;
+    const afterTechError2 = technicalErrorIndex !== -1 && technicalErrorIndex + 2 < entries.length ? entries[technicalErrorIndex + 2] : null;
 
     const stage1d = techErrorEntry
       && afterTechError
@@ -710,7 +685,7 @@
       && afterTechError2.actionTaken.trim() === STAGE2_NEXT_ACTION
       && afterTechError2.remark.trim() === STAGE2_NEXT_REMARK;
 
-    // --- Check STAGE 1C ---
+    // Stage 1C
     const stage1c = lastAssistantReviewed
       && isPostPerformaFlag
       && !abhimanyuPresent
@@ -723,9 +698,9 @@
     // --- LOGGING ---
     console.log('[FCI NOC Assistant] Stage 3  (Fill Approval Remark):                  ' + (stage3  ? 'MATCH' : 'no match'));
     console.log('[FCI NOC Assistant] Stage 3E (Fill Rejection Remark):                 ' + (stage3e ? 'MATCH' : 'no match'));
-    console.log('[FCI NOC Assistant] MISMATCH (BALJIT Clear + Assistant NOT in order): ' + (mismatchClear ? '⚠️ MISMATCH' : 'no match'));
+    console.log('[FCI NOC Assistant] MISMATCH (BALJIT Clear + Assistant NOT in order): ' + (mismatchClear    ? '⚠️ MISMATCH' : 'no match'));
     console.log('[FCI NOC Assistant] MISMATCH (BALJIT Not Clear + Assistant in order): ' + (mismatchNotClear ? '⚠️ MISMATCH' : 'no match'));
-    console.log('[FCI NOC Assistant] MISMATCH (BALJIT Ambiguous/Missing):              ' + (mismatchAmbiguous ? '⚠️ MISMATCH' : 'no match'));
+    console.log('[FCI NOC Assistant] MISMATCH (BALJIT Ambiguous):                      ' + (mismatchAmbiguous ? '⚠️ MISMATCH' : 'no match'));
     console.log('[FCI NOC Assistant] Stage 3B (Send back to DO Manager):               ' + (stage3b ? 'MATCH' : 'no match'));
     console.log('[FCI NOC Assistant] Stage 3D (Send back to Initiating Official - RO): ' + (stage3d ? 'MATCH' : 'no match'));
     console.log('[FCI NOC Assistant] Stage 3C (Re-send to assistant):                  ' + (stage3c ? 'MATCH' : 'no match'));
@@ -741,128 +716,110 @@
     // --- PRIORITY ORDER: 3E → 3 → MISMATCH → 3B → 3D → 3C → 1D → 2 → 1C → 1B → 1 ---
 
     if (stage3e) {
-      // Stage 3E: Pending Vigilance Case → Fill rejection remark directly on Review Page
       const assistantName = lastAssistantReviewed ? lastAssistantReviewed.employeeName : 'Assistant';
-      console.log('[FCI NOC Assistant] Stage 3E: BALJIT says NOT CLEAR, Assistant agrees. Filling rejection proposal remark...');
+      console.log('[FCI NOC Assistant] Stage 3E: Filling rejection proposal remark...');
       highlightTriggerRow(tbody, assistantName, 'Reviewed');
 
-      const employeeName = getFieldValue('employee_name') || 'the official';
-      const designation = getFieldValue('designation') || '';
-      const cadre = getFieldValue('cadre') || '';
-      const examName = getFieldValue('examination_name') || 'the examination';
+      const employeeName   = getFieldValue('employee_name') || 'the official';
+      const designation    = getFieldValue('designation') || '';
+      const cadre          = getFieldValue('cadre') || '';
+      const examName       = getFieldValue('examination_name') || 'the examination';
       const nocApprovedStr = getFieldValue('nNOCApproved') || '0';
-      const nocCount = parseInt(nocApprovedStr, 10) || 0;
-      const ordinalCount = getOrdinal(nocCount + 1);
-
+      const nocCount       = parseInt(nocApprovedStr, 10) || 0;
+      const ordinalCount   = getOrdinal(nocCount + 1);
       const vigilanceStatus = getVigilanceStatusFromBaljit(baljitRemark);
 
       const stage3eRemark = 'Sh. ' + employeeName + ', ' + designation + ' (' + cadre + '), has requested issuance of an NOC to appear in the ' + examName + '. While the official is clear from the administrative and vigilance angles at DO level and administrative angle at RO level, the official is not clear from the vigilance angle at RO level as there is ' + vigilanceStatus + ' against the official. This is the ' + ordinalCount + ' NOC request of the official for the current calendar year. As per FCI HQ Circular No. 01-2019-05 dated 17.01.2019 read with DoPT O.M. dated 23.12.2013, applications of officials with pending vigilance/prosecution issues cannot be forwarded or considered. In view of the above, the present request for issuance of NOC for appearing in the ' + examName + ' may be <b>rejected/reverted</b> in accordance with the said circular, for kind consideration and further necessary directions please.';
 
-      console.log('[FCI NOC Assistant] Stage 3E: Filling remark with vigilance status: ' + vigilanceStatus);
-      console.log('[FCI NOC Assistant] Stage 3E: Filling remark: ' + stage3eRemark);
       setTimeout(function() { fillReviewerRemarks(stage3eRemark, true); }, 2000);
 
     } else if (stage3) {
-      // Stage 3: BALJIT says CLEAR + Assistant "in order" → Fill approval remark
       const assistantName = lastAssistantReviewed ? lastAssistantReviewed.employeeName : 'Assistant';
-      console.log('[FCI NOC Assistant] Stage 3: BALJIT says CLEAR, Assistant confirms "in order". Filling approval remark...');
+      console.log('[FCI NOC Assistant] Stage 3: Filling approval remark...');
       highlightTriggerRow(tbody, assistantName, 'Reviewed');
       const remarkToFill = isRoChandigarh ? STAGE3_REMARK_RO : STAGE3_REMARK_NON_RO;
       setTimeout(function() { fillReviewerRemarks(remarkToFill, false); }, 2000);
 
     } else if (mismatchNotClear) {
-      // MISMATCH: BALJIT says NOT CLEAR + Assistant "in order"
-      // Send back to same Assistant with correction remark
       const assistantName = lastAssistantReviewed ? lastAssistantReviewed.employeeName : 'Assistant';
-      console.log('[FCI NOC Assistant] ⚠️ MISMATCH: BALJIT says NOT CLEAR but Assistant says "in order". Sending back to Assistant for re-examination: ' + assistantName);
-
-      // Highlight both BALJIT (red) and Assistant (orange) rows
+      console.log('[FCI NOC Assistant] ⚠️ MISMATCH: Sending back to Assistant: ' + assistantName);
       highlightMismatch(tbody, lastBaljit, lastAssistantReviewed);
 
-      // Store the mismatch stage and route back to assistant by name
-      sessionStorage.setItem('fci_noc_stage', '3mismatch');
-      sessionStorage.setItem('fci_noc_office_type', OFFICE_TYPE_RO);
-      sessionStorage.setItem('fci_noc_target_office', 'RO CHANDIGARH');
+      sessionStorage.setItem('fci_noc_stage',                '3mismatch');
+      sessionStorage.setItem('fci_noc_office_type',          OFFICE_TYPE_RO);
+      sessionStorage.setItem('fci_noc_target_office',        RO_CHANDIGARH);
       sessionStorage.setItem('fci_noc_target_employee_name', assistantName);
-      sessionStorage.setItem('fci_noc_assistant_remark', MISMATCH_REMARK_NOT_CLEAR);
+      sessionStorage.setItem('fci_noc_assistant_remark',     MISMATCH_REMARK_NOT_CLEAR);
       sessionStorage.removeItem('fci_noc_assistant_emp');
       sessionStorage.removeItem('fci_noc_assistant_name');
       setTimeout(clickAddReviewer, 2000);
 
     } else if (mismatchClear || mismatchAmbiguous) {
-      // MISMATCH: BALJIT says CLEAR + Assistant NOT "in order" OR BALJIT ambiguous
-      // Highlight both rows, alert, NO action
-      console.log('[FCI NOC Assistant] ⚠️ MISMATCH detected. Both BALJIT and Assistant rows highlighted. Please review manually.');
+      console.log('[FCI NOC Assistant] ⚠️ MISMATCH detected. Please review manually.');
       highlightMismatch(tbody, lastBaljit, lastAssistantReviewed);
-      // No action taken - user must manually review
 
     } else if (stage3b) {
-      // Stage 3B: Assistant found issue → send back to DO Manager
       if (!doManagerEntry) {
         console.warn('[FCI NOC Assistant] Stage 3B: Could not identify DO Manager. No action taken.');
         return;
       }
-      const assistantSlNo   = lastAssistantReviewed.slNo;
-      const assistantName   = lastAssistantReviewed.employeeName;
-      const doManagerName   = doManagerEntry.employeeName;
-      const stage3bRemark   = 'Reference may be made to the observations recorded during examination of the request at Sl. No. ' + assistantSlNo + '. Required necessary clarifications and/or supporting documents, as indicated, may kindly be furnished for further processing.';
+      const assistantSlNo = lastAssistantReviewed.slNo;
+      const assistantName = lastAssistantReviewed.employeeName;
+      const doManagerName = doManagerEntry.employeeName;
+      const stage3bRemark = 'Reference may be made to the observations recorded during examination of the request at Sl. No. ' + assistantSlNo + '. Required necessary clarifications and/or supporting documents, as indicated, may kindly be furnished for further processing.';
 
-      console.log('[FCI NOC Assistant] Stage 3B: Issue found by ' + assistantName + ' (S.No. ' + assistantSlNo + '). Sending back to DO Manager: ' + doManagerName);
+      console.log('[FCI NOC Assistant] Stage 3B: Sending back to DO Manager: ' + doManagerName);
       highlightTriggerRow(tbody, assistantName, 'Reviewed');
 
-      sessionStorage.setItem('fci_noc_stage', '3b');
-      sessionStorage.setItem('fci_noc_office_type', OFFICE_TYPE_DO);
-      sessionStorage.setItem('fci_noc_target_office', officeValue.trim().replace(/\s+/g, ' ').toUpperCase());
+      sessionStorage.setItem('fci_noc_stage',                '3b');
+      sessionStorage.setItem('fci_noc_office_type',          OFFICE_TYPE_DO);
+      sessionStorage.setItem('fci_noc_target_office',        officeValue.trim().replace(/\s+/g, ' ').toUpperCase());
       sessionStorage.setItem('fci_noc_target_employee_name', doManagerName);
-      sessionStorage.setItem('fci_noc_assistant_remark', stage3bRemark);
+      sessionStorage.setItem('fci_noc_assistant_remark',     stage3bRemark);
       sessionStorage.removeItem('fci_noc_assistant_emp');
       sessionStorage.removeItem('fci_noc_assistant_name');
       setTimeout(clickAddReviewer, 2000);
 
     } else if (stage3d) {
-      // Stage 3D: RO CHANDIGARH - Assistant found issue → send back to initiating official
       const initiatingEmployee = getInitiatingEmployee(entries);
       if (!initiatingEmployee) {
         console.warn('[FCI NOC Assistant] Stage 3D: Could not identify initiating employee. No action taken.');
         return;
       }
-      const assistantSlNo   = lastAssistantReviewed.slNo;
-      const assistantName   = lastAssistantReviewed.employeeName;
-      const initiatingName  = initiatingEmployee.name;
+      const assistantSlNo  = lastAssistantReviewed.slNo;
+      const assistantName  = lastAssistantReviewed.employeeName;
+      const initiatingName = initiatingEmployee.name;
+      const stage3dRemark  = 'Reference may be made to the observations recorded during examination of the request at Sl. No. ' + assistantSlNo + '. Required necessary clarifications and/or supporting documents, as indicated, may kindly be furnished for further processing.';
 
-      const stage3dRemark = 'Reference may be made to the observations recorded during examination of the request at Sl. No. ' + assistantSlNo + '. Required necessary clarifications and/or supporting documents, as indicated, may kindly be furnished for further processing.';
-
-      console.log('[FCI NOC Assistant] Stage 3D (RO): Issue found by ' + assistantName + ' (S.No. ' + assistantSlNo + '). Sending back to initiating official: ' + initiatingName);
+      console.log('[FCI NOC Assistant] Stage 3D: Sending back to initiating official: ' + initiatingName);
       highlightTriggerRow(tbody, assistantName, 'Reviewed');
 
-      sessionStorage.setItem('fci_noc_stage', '3d');
-      sessionStorage.setItem('fci_noc_office_type', OFFICE_TYPE_RO);
-      sessionStorage.setItem('fci_noc_target_office', 'RO CHANDIGARH');
+      sessionStorage.setItem('fci_noc_stage',                '3d');
+      sessionStorage.setItem('fci_noc_office_type',          OFFICE_TYPE_RO);
+      sessionStorage.setItem('fci_noc_target_office',        RO_CHANDIGARH);
       sessionStorage.setItem('fci_noc_target_employee_name', initiatingName);
-      sessionStorage.setItem('fci_noc_assistant_remark', stage3dRemark);
+      sessionStorage.setItem('fci_noc_assistant_remark',     stage3dRemark);
       sessionStorage.removeItem('fci_noc_assistant_emp');
       sessionStorage.removeItem('fci_noc_assistant_name');
       setTimeout(clickAddReviewer, 2000);
 
     } else if (stage3c) {
-      // Stage 3C: DO has reprocessed → re-send to assistant
       const assistant = decideAssistant(cadreValue, officeValue);
       if (!assistant) return;
-      console.log('[FCI NOC Assistant] Stage 3C: DO Manager "' + doManagerEntry.employeeName + '" has sent back. Re-routing to ' + assistant.name + '...');
+      console.log('[FCI NOC Assistant] Stage 3C: Re-routing to ' + assistant.name + '...');
       highlightTriggerRow(tbody, doManagerEntry.employeeName, entryBeforeAmitPending.actionTaken);
 
-      sessionStorage.setItem('fci_noc_stage', '3c');
-      sessionStorage.setItem('fci_noc_office_type', OFFICE_TYPE_RO);
-      sessionStorage.setItem('fci_noc_assistant_emp', assistant.empNo);
-      sessionStorage.setItem('fci_noc_assistant_name', assistant.name);
+      sessionStorage.setItem('fci_noc_stage',            '3c');
+      sessionStorage.setItem('fci_noc_office_type',      OFFICE_TYPE_RO);
+      sessionStorage.setItem('fci_noc_target_office',    RO_CHANDIGARH);
+      sessionStorage.setItem('fci_noc_assistant_emp',    assistant.empNo);
+      sessionStorage.setItem('fci_noc_assistant_name',   assistant.name);
       sessionStorage.setItem('fci_noc_assistant_remark', ASSISTANT_REMARK);
-      sessionStorage.removeItem('fci_noc_target_office');
       sessionStorage.removeItem('fci_noc_target_employee_name');
       setTimeout(clickAddReviewer, 2000);
 
     } else if (stage1d) {
-      // Stage 1D: Technical error detected
-      console.log('[FCI NOC Assistant] Stage 1D: Technical error detected in remark by ' + techErrorEntry.employeeName);
+      console.log('[FCI NOC Assistant] Stage 1D: Technical error detected.');
 
       if (isRoChandigarh) {
         const requestingEmployee = getRequestingEmployee(entries);
@@ -870,18 +827,14 @@
           console.warn('[FCI NOC Assistant] Stage 1D (RO): Could not identify requesting employee. No action taken.');
           return;
         }
-
         const technicalRemark = 'The attachments submitted with the request are not accessible for viewing or downloading due to a technical error. Kindly re-submit the required documents/attachments for further processing.';
-        const targetOffice = 'RO CHANDIGARH';
-
-        console.log('[FCI NOC Assistant] Stage 1D (RO): Sending back to requesting employee: ' + requestingEmployee.name + ' at ' + targetOffice);
         highlightTriggerRow(tbody, techErrorEntry.employeeName, 'Reviewed');
 
-        sessionStorage.setItem('fci_noc_stage', '1d-ro');
-        sessionStorage.setItem('fci_noc_office_type', OFFICE_TYPE_RO);
-        sessionStorage.setItem('fci_noc_target_office', targetOffice);
+        sessionStorage.setItem('fci_noc_stage',                '1d-ro');
+        sessionStorage.setItem('fci_noc_office_type',          OFFICE_TYPE_RO);
+        sessionStorage.setItem('fci_noc_target_office',        RO_CHANDIGARH);
         sessionStorage.setItem('fci_noc_target_employee_name', requestingEmployee.name);
-        sessionStorage.setItem('fci_noc_assistant_remark', technicalRemark);
+        sessionStorage.setItem('fci_noc_assistant_remark',     technicalRemark);
         sessionStorage.removeItem('fci_noc_assistant_emp');
         sessionStorage.removeItem('fci_noc_assistant_name');
         setTimeout(clickAddReviewer, 2000);
@@ -891,78 +844,75 @@
           console.warn('[FCI NOC Assistant] Stage 1D (Non-RO): Could not identify DO Manager. No action taken.');
           return;
         }
-
         const technicalRemark = 'Due to an inadvertent technical issue, the documents earlier uploaded for processing the request are not accessible, as the attachments are not opening. It is therefore requested to kindly upload the requisite documents again and resubmit the request for further processing.';
-
-        console.log('[FCI NOC Assistant] Stage 1D (Non-RO): Sending back to DO Manager: ' + doManagerEntry.employeeName);
         highlightTriggerRow(tbody, techErrorEntry.employeeName, 'Reviewed');
 
-        sessionStorage.setItem('fci_noc_stage', '1d-do');
-        sessionStorage.setItem('fci_noc_office_type', OFFICE_TYPE_DO);
-        sessionStorage.setItem('fci_noc_target_office', officeValue.trim().replace(/\s+/g, ' ').toUpperCase());
+        sessionStorage.setItem('fci_noc_stage',                '1d-do');
+        sessionStorage.setItem('fci_noc_office_type',          OFFICE_TYPE_DO);
+        sessionStorage.setItem('fci_noc_target_office',        officeValue.trim().replace(/\s+/g, ' ').toUpperCase());
         sessionStorage.setItem('fci_noc_target_employee_name', doManagerEntry.employeeName);
-        sessionStorage.setItem('fci_noc_assistant_remark', technicalRemark);
+        sessionStorage.setItem('fci_noc_assistant_remark',     technicalRemark);
         sessionStorage.removeItem('fci_noc_assistant_emp');
         sessionStorage.removeItem('fci_noc_assistant_name');
         setTimeout(clickAddReviewer, 2000);
       }
 
     } else if (stage2) {
-      // Stage 2: ABHIMANYU SWAMI cleared → send to Assistant
       const assistant = decideAssistant(cadreValue, officeValue);
       if (assistant) {
-        console.log('[FCI NOC Assistant] Stage 2: Routing to ' + assistant.name + ' (' + assistant.empNo + ')');
+        console.log('[FCI NOC Assistant] Stage 2: Routing to ' + assistant.name + '...');
         highlightTriggerRow(tbody, 'ABHIMANYU SWAMI', 'Reviewed');
-        sessionStorage.setItem('fci_noc_stage', '2');
-        sessionStorage.setItem('fci_noc_office_type', OFFICE_TYPE_RO);
-        sessionStorage.setItem('fci_noc_assistant_emp', assistant.empNo);
-        sessionStorage.setItem('fci_noc_assistant_name', assistant.name);
+
+        sessionStorage.setItem('fci_noc_stage',            '2');
+        sessionStorage.setItem('fci_noc_office_type',      OFFICE_TYPE_RO);
+        sessionStorage.setItem('fci_noc_target_office',    RO_CHANDIGARH);
+        sessionStorage.setItem('fci_noc_assistant_emp',    assistant.empNo);
+        sessionStorage.setItem('fci_noc_assistant_name',   assistant.name);
         sessionStorage.setItem('fci_noc_assistant_remark', ASSISTANT_REMARK);
-        sessionStorage.removeItem('fci_noc_target_office');
         sessionStorage.removeItem('fci_noc_target_employee_name');
         setTimeout(clickAddReviewer, 2000);
       }
 
     } else if (stage1c) {
-      // Stage 1C: Assistant completed performa, ABHIMANYU NOT in history → send to ABHIMANYU SWAMI
-      console.log('[FCI NOC Assistant] Stage 1C: Assistant "' + lastAssistantReviewed.employeeName + '" has completed performa. ABHIMANYU SWAMI not in history yet. Sending to ABHIMANYU SWAMI for vigilance clearance...');
+      console.log('[FCI NOC Assistant] Stage 1C: Sending to ABHIMANYU SWAMI for vigilance clearance...');
       highlightTriggerRow(tbody, lastAssistantReviewed.employeeName, 'Reviewed');
 
-      sessionStorage.setItem('fci_noc_stage', '1c');
-      sessionStorage.setItem('fci_noc_office_type', OFFICE_TYPE_RO);
-      sessionStorage.setItem('fci_noc_assistant_emp', STAGE1C_TARGET_NUMBER);
-      sessionStorage.setItem('fci_noc_assistant_name', STAGE1C_TARGET_NAME);
+      sessionStorage.setItem('fci_noc_stage',            '1c');
+      sessionStorage.setItem('fci_noc_office_type',      OFFICE_TYPE_RO);
+      sessionStorage.setItem('fci_noc_target_office',    RO_CHANDIGARH);
+      sessionStorage.setItem('fci_noc_assistant_emp',    STAGE1C_TARGET_NUMBER);
+      sessionStorage.setItem('fci_noc_assistant_name',   STAGE1C_TARGET_NAME);
       sessionStorage.setItem('fci_noc_assistant_remark', STAGE1C_REMARK);
-      sessionStorage.removeItem('fci_noc_target_office');
       sessionStorage.removeItem('fci_noc_target_employee_name');
       setTimeout(clickAddReviewer, 2000);
 
     } else if (stage1 && isRoChandigarh) {
-      // Stage 1B: MAYURESH dispatched (RO CHANDIGARH) → send to Assistant with performa remark
       const assistant = decideAssistant(cadreValue, officeValue);
       if (assistant) {
-        console.log('[FCI NOC Assistant] Stage 1B (RO CHANDIGARH): Routing to ' + assistant.name + ' (' + assistant.empNo + ')');
+        console.log('[FCI NOC Assistant] Stage 1B: Routing to ' + assistant.name + '...');
         highlightTriggerRow(tbody, 'MAYURESH KUMAR', 'Dispatched');
-        sessionStorage.setItem('fci_noc_stage', '1b');
-        sessionStorage.setItem('fci_noc_office_type', OFFICE_TYPE_RO);
-        sessionStorage.setItem('fci_noc_assistant_emp', assistant.empNo);
-        sessionStorage.setItem('fci_noc_assistant_name', assistant.name);
+
+        sessionStorage.setItem('fci_noc_stage',            '1b');
+        sessionStorage.setItem('fci_noc_office_type',      OFFICE_TYPE_RO);
+        sessionStorage.setItem('fci_noc_target_office',    RO_CHANDIGARH);
+        sessionStorage.setItem('fci_noc_assistant_emp',    assistant.empNo);
+        sessionStorage.setItem('fci_noc_assistant_name',   assistant.name);
         sessionStorage.setItem('fci_noc_assistant_remark', PERFORMA_REMARK);
-        sessionStorage.removeItem('fci_noc_target_office');
         sessionStorage.removeItem('fci_noc_target_employee_name');
         setTimeout(clickAddReviewer, 2000);
       }
 
     } else if (stage1) {
-      // Stage 1: MAYURESH dispatched (NON-RO) → send to ABHIMANYU SWAMI
+      // Stage 1: FIXED — now explicitly sets all routing data for ABHIMANYU SWAMI
       console.log('[FCI NOC Assistant] Stage 1: Routing to ABHIMANYU SWAMI...');
       highlightTriggerRow(tbody, 'MAYURESH KUMAR', 'Dispatched');
-      sessionStorage.setItem('fci_noc_stage', '1');
-      sessionStorage.setItem('fci_noc_office_type', OFFICE_TYPE_RO);
-      sessionStorage.removeItem('fci_noc_assistant_emp');
-      sessionStorage.removeItem('fci_noc_assistant_name');
-      sessionStorage.removeItem('fci_noc_assistant_remark');
-      sessionStorage.removeItem('fci_noc_target_office');
+
+      sessionStorage.setItem('fci_noc_stage',            '1');
+      sessionStorage.setItem('fci_noc_office_type',      OFFICE_TYPE_RO);
+      sessionStorage.setItem('fci_noc_target_office',    RO_CHANDIGARH);
+      sessionStorage.setItem('fci_noc_assistant_emp',    STAGE1C_TARGET_NUMBER);
+      sessionStorage.setItem('fci_noc_assistant_name',   STAGE1C_TARGET_NAME);
+      sessionStorage.setItem('fci_noc_assistant_remark', STAGE1C_REMARK);
       sessionStorage.removeItem('fci_noc_target_employee_name');
       setTimeout(clickAddReviewer, 2000);
 
@@ -971,7 +921,7 @@
     }
   }
 
-  // Highlight the trigger row with a flashing yellow effect and scroll it into view
+  // Highlight the trigger row with a flashing yellow effect
   function highlightTriggerRow(tbody, targetName, targetAction) {
     const allRows = tbody.querySelectorAll('tr');
     let targetRow = null;
@@ -1002,9 +952,7 @@
       if (flashCount >= 6) {
         clearInterval(flashInterval);
         targetRow.style.backgroundColor = '#fff3cd';
-        setTimeout(function () {
-          targetRow.style.backgroundColor = originalBg;
-        }, 1800);
+        setTimeout(function () { targetRow.style.backgroundColor = originalBg; }, 1800);
       }
     }, 300);
   }
@@ -1033,13 +981,13 @@
     }
   }
 
-  // STAGE 3 & 3E: Fill the Reviewer Remarks box directly on the review page
+  // Fill Reviewer Remarks box on the Review page
   function fillReviewerRemarks(remarkText, useHtml) {
-    const editor = document.getElementById('editor');
+    const editor  = document.getElementById('editor');
     const textarea = document.getElementById('dop_member_comment');
 
     if (!editor) {
-      console.warn('[FCI NOC Assistant] Stage 3/3E: Reviewer Remarks editor (#editor) not found. Retrying...');
+      console.warn('[FCI NOC Assistant] Reviewer Remarks editor (#editor) not found. Retrying...');
       setTimeout(function() { fillReviewerRemarks(remarkText, useHtml); }, 1500);
       return;
     }
@@ -1061,8 +1009,8 @@
     editor.dispatchEvent(new Event('input', { bubbles: true }));
     editor.dispatchEvent(new Event('blur',  { bubbles: true }));
 
-    console.log('[FCI NOC Assistant] Stage 3/3E: Reviewer Remarks filled successfully.');
-    console.log('[FCI NOC Assistant] *** Please review the remark and click the Review/Submit button yourself. ***');
+    console.log('[FCI NOC Assistant] Reviewer Remarks filled successfully.');
+    console.log('[FCI NOC Assistant] *** Please review the remark and click Review/Submit yourself. ***');
   }
 
   // Click the Add Reviewer button
