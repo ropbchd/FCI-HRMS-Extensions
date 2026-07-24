@@ -179,7 +179,7 @@
       } else if (attempts >= 20) {
         clearInterval(interval);
         console.warn(LOG + ' Action history table did not load in time.');
-        injectPanel({ shobhaRemarkNo: null, assistantRemarkNo: null, lastActor: null });
+        injectPanel({ poojaRemarkNo: null, assistantRemarkNo: null, lastActor: null });
       }
     }, 500);
   }
@@ -218,15 +218,15 @@
 
     // ─── FIND KEY ENTRIES ─────────────────────────────────────────────────
 
-    let shobhaEntry = null;
+    let poojaEntry = null;
     let assistantEntry = null;
 
     for (let i = entries.length - 1; i >= 0; i--) {
       const e = entries[i];
 
       // Find last POOJA SINDHU entry with a substantive remark (not N/A)
-      if (!shobhaEntry && e.employee.toUpperCase().includes('POOJA SINDHU') && e.remark && e.remark.trim() !== 'N/A' && e.remark.trim() !== '') {
-        shobhaEntry = e;
+      if (!poojaEntry && e.employee.toUpperCase().includes('POOJA SINDHU') && e.remark && e.remark.trim() !== 'N/A' && e.remark.trim() !== '') {
+        poojaEntry = e;
       }
 
       // Find last assistant entry (MADHU DHAKA / DIVYA KORNU / VISHALI MARWAHA)
@@ -235,14 +235,14 @@
       }
     }
 
-    const shobhaRemarkNo = shobhaEntry ? shobhaEntry.slNo : null;
+    const poojaRemarkNo = poojaEntry ? poojaEntry.slNo : null;
     const assistantRemarkNo = assistantEntry ? assistantEntry.slNo : null;
 
-    console.log(LOG + ' Shobha remark Sl.No: ' + shobhaRemarkNo);
+    console.log(LOG + ' Pooja remark Sl.No: ' + poojaRemarkNo);
     console.log(LOG + ' Assistant remark Sl.No: ' + assistantRemarkNo);
 
     return {
-      shobhaRemarkNo: shobhaRemarkNo,
+      poojaRemarkNo: poojaRemarkNo,
       assistantRemarkNo: assistantRemarkNo,
       entries: entries
     };
@@ -489,12 +489,12 @@
   function injectPanel(parsedData) {
     if (document.getElementById('ala-panel')) return;
 
-    const shobhaRemarkNo = parsedData.shobhaRemarkNo || '___';
+    const poojaRemarkNo = parsedData.poojaRemarkNo || '___';
     const assistantRemarkNo = parsedData.assistantRemarkNo || '___';
 
     const panel = document.createElement('div');
     panel.id = 'ala-panel';
-    panel.innerHTML = buildPanelHTML(empName, empNumber, designation, cadre, office, shobhaRemarkNo, assistantRemarkNo);
+    panel.innerHTML = buildPanelHTML(empName, empNumber, designation, cadre, office, poojaRemarkNo, assistantRemarkNo);
     applyPanelStyles(panel);
     document.body.appendChild(panel);
 
@@ -504,7 +504,7 @@
     const sendBackBtn = panel.querySelector('#ala-send-back-btn');
     if (sendBackBtn) {
       sendBackBtn.addEventListener('click', function () {
-        const remark = SEND_BACK_REMARK_TEMPLATE.replace('_____', shobhaRemarkNo);
+        const remark = SEND_BACK_REMARK_TEMPLATE.replace('_____', poojaRemarkNo);
         updatePanelForAction(panel, remark, 'send_back', '#D85A30', '#993C1D', '#FAECE7', '↩ Send Back (Navigate to Add Reviewer)');
       });
     }
@@ -514,7 +514,7 @@
     if (forwardBtn) {
       forwardBtn.addEventListener('click', function () {
         const remark = FORWARD_REMARK_TEMPLATE
-          .replace('_____', shobhaRemarkNo)
+          .replace('_____', poojaRemarkNo)
           .replace('_____', assistantRemarkNo);
         updatePanelForAction(panel, remark, 'forward', '#1D9E75', '#0F6E56', '#E1F5EE', '✓ Fill Remark on Review Page');
       });
@@ -550,8 +550,8 @@
 
   // ─── BUILD PANEL HTML ─────────────────────────────────────────────────────
 
-  function buildPanelHTML(name, number, desig, cadre, office, shobhaNo, assistantNo) {
-    const shobhaDisplay = shobhaNo !== '___' ? 'Sl. No. ' + shobhaNo : 'Not found';
+  function buildPanelHTML(name, number, desig, cadre, office, poojaNo, assistantNo) {
+    const poojaDisplay = poojaNo !== '___' ? 'Sl. No. ' + poojaNo : 'Not found';
     const assistantDisplay = assistantNo !== '___' ? 'Sl. No. ' + assistantNo : 'Not found';
 
     return '' +
@@ -567,7 +567,7 @@
         '</span>' +
       '</div>' +
       '<div style="font-size:11px;color:#555;margin:4px 0 8px;background:#f0f4f8;padding:4px 8px;border-radius:4px;">' +
-        '🔍 Shobha remark: ' + shobhaDisplay +
+        '🔍 Pooja remark: ' + poojaDisplay +
         ' &nbsp;|&nbsp; Assistant remark: ' + assistantDisplay +
       '</div>' +
       '<hr class="ala-divider">' +
