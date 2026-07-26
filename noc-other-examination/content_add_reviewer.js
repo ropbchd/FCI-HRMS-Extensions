@@ -1,7 +1,7 @@
 // FCI NOC Assistant — Add Reviewer Page Script
 // Runs on workflow/add-reviewer/*
 // Reads sessionStorage handoff from content.js and fills the Add Reviewer form.
-// v4.5 — Data-driven form filling, no stage-specific business logic
+// v4.5.1 — Added scrollIntoView for Reason editor
 // world: "MAIN" — runs in page context to access jQuery/Select2
 
 (function () {
@@ -157,6 +157,9 @@
       return false;
     }
 
+    // SCROLL TO REASON EDITOR (same pattern as content.js fillReviewerRemarks)
+    editor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
     editor.innerText = assistantRemark;
     if (comments) comments.value = assistantRemark;
     editor.dispatchEvent(new Event('input', { bubbles: true }));
@@ -287,12 +290,50 @@
     }, 500);
   }
 
+  // --- WAIT FOR JQUERY & SELECT2 (DIAGNOSTIC VERSION) ---
+  // This version only adds extra logging — no logic changes
+  function waitForJQuery(callback) {
+    let attempts = 0;
+    const maxAttempts = 20;
+
+    function check() {
+      attempts++;
+
+      console.log(
+        '[FCI NOC Assistant] Attempt',
+        attempts,
+        '| typeof jQuery =', typeof window.jQuery,
+        '| typeof $ =', typeof window.$,
+        '| select2 =',
+        window.jQuery && window.jQuery.fn
+          ? typeof window.jQuery.fn.select2
+          : 'jQuery not available'
+      );
+
+      if (window.jQuery && window.jQuery.fn.select2) {
+        console.log('[FCI NOC Assistant] Add Reviewer: jQuery and Select2 detected.');
+        callback();
+      } else if (attempts < maxAttempts) {
+        setTimeout(check, 500);
+      } else {
+        console.warn('[FCI NOC Assistant] Add Reviewer: jQuery/Select2 not detected after ' + maxAttempts + ' attempts.');
+        callback();
+      }
+    }
+
+    check();
+  }
+
   // --- STARTUP ---
   if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    setTimeout(function() { goToLastPage(function() { setTimeout(execute, 1000); }); }, 500);
+    waitForJQuery(function() {
+      setTimeout(function() { goToLastPage(function() { setTimeout(execute, 1000); }); }, 500);
+    });
   } else {
     document.addEventListener('DOMContentLoaded', function() {
-      setTimeout(function() { goToLastPage(function() { setTimeout(execute, 1000); }); }, 500);
+      waitForJQuery(function() {
+        setTimeout(function() { goToLastPage(function() { setTimeout(execute, 1000); }); }, 500);
+      });
     });
   }
 
