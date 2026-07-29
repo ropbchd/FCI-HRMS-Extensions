@@ -385,12 +385,8 @@
       return;
     }
 
-    const hasDocument = isDocumentAttached();
-    console.log(LOG + ' Document attached: ' + hasDocument);
-
-    const remark = hasDocument
-      ? buildOtaRemarkWithDocument(employeeName, designation, cadre, admissibleHrs)
-      : buildOtaRemarkNoDocument(employeeName, designation, cadre, admissibleHrs);
+    // Always use the no-document remark template as per user requirement
+    const remark = buildOtaRemarkNoDocument(employeeName, designation, cadre, admissibleHrs);
 
     const editor   = document.getElementById('editor');
     const textarea = document.getElementById('dop_member_comment');
