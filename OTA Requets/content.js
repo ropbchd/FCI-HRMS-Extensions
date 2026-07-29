@@ -12,10 +12,11 @@
   const DISPATCHER_NAME = 'MAYURESH KUMAR';
   const MANAGER_NAME    = 'AMIT KUMAR SINGH';
 
-  // --- Employee -> Cadre lookup (only two officials currently apply for OTA) ---
+  // --- Employee -> Cadre lookup ---
   const CADRE_LOOKUP = {
     '286357': 'General',   // RISHIKESH MISHRA
-    '315595': 'Depot'       // SAMYAK NILKANTH MESHRAM
+    '315595': 'Depot',     // SAMYAK NILKANTH MESHRAM
+    '316946': 'Depot'      // ANKIT MALIK
   };
 
   const MULTIPLICATION_FACTOR_VALUE = '1.1';
