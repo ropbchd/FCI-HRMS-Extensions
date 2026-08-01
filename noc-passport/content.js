@@ -1,6 +1,7 @@
 // FCI NOC Passport Assistant - Content Script
 // Runs on every NOC workflow review page.
 // Checks action history and routes to the correct next step for NOC Passport requests.
+// v2 — adds the Floating Window Framework bridge (window.FCIWorkflow).
 
 (function () {
 
@@ -41,7 +42,29 @@
 
   // Stage 3 remark is built dynamically — see buildStage3Remark()
 
+  // --- Floating Window Framework constants ---
+  // [HTML] Add Reviewer page — Office Type dropdown values (same page for every workflow)
+  const OFFICE_TYPE_RO = '4';
+  const OFFICE_TYPE_DO = '5';
+  const RO_CHANDIGARH  = 'RO CHANDIGARH';
+  // [ORG] Designation string used to locate the DO Manager (Admin.) in the action history
+  const AGM_DESIGNATION = 'Assistant General Manager';
+
+  const REEXAMINE_REMARK = 'Kindly re-examine the request in light of the applicable rules and circulars of the Corporation.';
+  const RETURN_PREVIOUS_REMARK = 'The observations recorded in the action history may kindly be perused, and the requisite clarification, confirmation, or documentation furnished for further processing of the request.';
+
   // ----------------------
+
+  // === Floating Window Bridge — cached workflow state ===
+  let _fciWorkflowCache = {
+    requestId: null,
+    entries: null,
+    cadreValue: null,
+    officeValue: null,
+    isRoChandigarh: null,
+    hasRecommendation: false,
+    recommendedSummary: null
+  };
 
   // --- SAFETY CHECK ---
   function getRequestId() {
@@ -113,6 +136,7 @@
         currentEntry = {
           actionTaken:  cells[3].textContent.trim(),
           employeeName: cells[4].textContent.trim(),
+          designation:  cells[5].textContent.trim(),
           remark:       ''
         };
         entries.push(currentEntry);
@@ -136,6 +160,13 @@
     console.log(LOG + ' Office: "' + officeValue + '" | Cadre: "' + cadreValue + '" | isRoChandigarh: ' + isRoChandigarh);
     console.log(LOG + ' Passport Application: "' + passportAppType + '" | isNew: ' + isNewApplication);
     console.log(LOG + ' Employee: "' + employeeName + '" | Designation: "' + designationValue + '"');
+
+    // --- Populate the Floating Window bridge cache ---
+    _fciWorkflowCache.entries        = entries;
+    _fciWorkflowCache.cadreValue     = cadreValue;
+    _fciWorkflowCache.officeValue    = officeValue;
+    _fciWorkflowCache.isRoChandigarh = isRoChandigarh;
+    _fciWorkflowCache.requestId      = requestId;
 
     // Find last Dispatched
     let lastDispatchedIndex = -1;
@@ -198,6 +229,13 @@
       console.log(LOG + ' Stage 3: Last assistant reviewer: ' + assistantName + '. Building remark...');
       highlightTriggerRow(tbody, assistantName, 'Reviewed');
       const stage3Remark = buildStage3Remark(employeeName, designationValue, cadreValue, officeValue, isNewApplication, isRoChandigarh);
+
+      // Stage 3 fills in place and never navigates — no sessionStorage payload to
+      // precompute (see architecture doc Issue #1: in-place-fill stages only need
+      // the live bridge, not the cross-page namespace).
+      _fciWorkflowCache.hasRecommendation  = true;
+      _fciWorkflowCache.recommendedSummary = 'Reviewer remarks prepared for forwarding to competent authority';
+
       setTimeout(function () {
         fillReviewerRemarks(stage3Remark);
         openAnnexureH();
@@ -209,11 +247,23 @@
         const stage2Remark = isNewApplication ? STAGE2_REMARK_NEW : STAGE2_REMARK_RENEWAL;
         console.log(LOG + ' Stage 2: Routing to ' + assistant.name);
         highlightTriggerRow(tbody, VIGILANCE_REVIEWER_NAME, 'Reviewed');
+
+        _fciWorkflowCache.hasRecommendation  = true;
+        _fciWorkflowCache.recommendedSummary = 'Routing to ' + assistant.name + ' for admin. clearance';
+
+        // Legacy keys (kept — still authoritative for content_add_reviewer.js's
+        // trigger gate and as a fallback if a payload build fails).
         sessionStorage.setItem('fci_noc_triggered',        'yes');
         sessionStorage.setItem('fci_noc_stage',            '2');
         sessionStorage.setItem('fci_noc_assistant_emp',    assistant.empNo);
         sessionStorage.setItem('fci_noc_assistant_name',   assistant.name);
         sessionStorage.setItem('fci_noc_assistant_remark', stage2Remark);
+
+        precomputeAllPayloads({
+          name: assistant.name, emp: assistant.empNo,
+          office: RO_CHANDIGARH, officeType: OFFICE_TYPE_RO,
+          remark: stage2Remark
+        });
         setTimeout(clickAddReviewer, 2000);
       }
 
@@ -222,11 +272,21 @@
       if (assistant) {
         console.log(LOG + ' Stage 1B (RO CHANDIGARH): Routing to ' + assistant.name);
         highlightTriggerRow(tbody, DISPATCHER_NAME, 'Dispatched');
+
+        _fciWorkflowCache.hasRecommendation  = true;
+        _fciWorkflowCache.recommendedSummary = 'Routing to ' + assistant.name + ' for administrative details as per performa';
+
         sessionStorage.setItem('fci_noc_triggered',        'yes');
         sessionStorage.setItem('fci_noc_stage',            '1b');
         sessionStorage.setItem('fci_noc_assistant_emp',    assistant.empNo);
         sessionStorage.setItem('fci_noc_assistant_name',   assistant.name);
         sessionStorage.setItem('fci_noc_assistant_remark', STAGE1B_REMARK);
+
+        precomputeAllPayloads({
+          name: assistant.name, emp: assistant.empNo,
+          office: RO_CHANDIGARH, officeType: OFFICE_TYPE_RO,
+          remark: STAGE1B_REMARK
+        });
         setTimeout(clickAddReviewer, 2000);
       }
 
@@ -234,15 +294,34 @@
       const stage1Remark = isNewApplication ? STAGE1_REMARK_NEW : STAGE1_REMARK_RENEWAL;
       console.log(LOG + ' Stage 1: Routing to ABHIMANYU SWAMI for vigilance clearance...');
       highlightTriggerRow(tbody, DISPATCHER_NAME, 'Dispatched');
+
+      _fciWorkflowCache.hasRecommendation  = true;
+      _fciWorkflowCache.recommendedSummary = 'Routing to Abhimanyu Swami for vigilance clearance';
+
       sessionStorage.setItem('fci_noc_triggered',        'yes');
       sessionStorage.setItem('fci_noc_stage',            '1');
       sessionStorage.setItem('fci_noc_assistant_emp',    '276695');
       sessionStorage.setItem('fci_noc_assistant_name',   'ABHIMANYU SWAMI');
       sessionStorage.setItem('fci_noc_assistant_remark', stage1Remark);
+
+      precomputeAllPayloads({
+        name: 'ABHIMANYU SWAMI', emp: '276695',
+        office: RO_CHANDIGARH, officeType: OFFICE_TYPE_RO,
+        remark: stage1Remark
+      });
       setTimeout(clickAddReviewer, 2000);
 
     } else {
       console.log(LOG + ' No matching stage found. No action taken.');
+      // hasRecommendation stays false — Re-examine and Return to Previous
+      // remain available regardless (Part 0's no-recommendation rule).
+    }
+
+    // Panel is injected only now — after parsing and stage decision are complete.
+    if (window.FloatingWindow && typeof window.FloatingWindow.render === 'function') {
+      window.FloatingWindow.render();
+    } else {
+      console.warn(LOG + ' FloatingWindow.render() not found — floating_window.js may not have loaded.');
     }
   }
 
@@ -406,6 +485,106 @@
     }
   }
 
+  // --- Return-to-Previous helpers ---
+
+  // RO CHANDIGARH-initiated requests: the initiating official is the first
+  // entry in the action history (confirmed against live data — see project notes).
+  function getInitiatingEmployee(entries) {
+    return (entries && entries.length > 0) ? entries[0] : null;
+  }
+
+  // DO-initiated requests: the DO Manager (Admin.) is the entry immediately
+  // preceding the FIRST Assistant General Manager entry that carries a
+  // non-N/A remark. Confirmed against a live DO FEROZEPUR request's action
+  // history (designation column present at cells[5]).
+  function getDoManager(entries) {
+    let agmIndex = -1;
+    for (let i = 0; i < entries.length; i++) {
+      if (entries[i].designation.trim() === AGM_DESIGNATION
+          && entries[i].remark.trim() !== 'N/A'
+          && entries[i].remark.trim() !== '') {
+        agmIndex = i;
+        break; // first match only
+      }
+    }
+    return agmIndex > 0 ? entries[agmIndex - 1] : null;
+  }
+
+  // --- Build the Re-examine payload (relevant assistant, cadre/office lookup) ---
+  function buildReexaminePayload() {
+    const cadreValue  = _fciWorkflowCache.cadreValue;
+    const officeValue = _fciWorkflowCache.officeValue;
+    const assistant = decideAssistant(cadreValue, officeValue);
+
+    if (!assistant) {
+      console.warn(LOG + ' Re-examine: could not resolve assistant for Cadre="' + cadreValue + '", Office="' + officeValue + '". Payload not built.');
+      return null;
+    }
+
+    return {
+      name: assistant.name,
+      emp: assistant.empNo,
+      office: RO_CHANDIGARH,
+      officeType: OFFICE_TYPE_RO,
+      remark: REEXAMINE_REMARK
+    };
+  }
+
+  // --- Build the Return-to-Previous-Level payload (DO Manager or initiating official) ---
+  function buildReturnPreviousPayload() {
+    const isRoChandigarh = _fciWorkflowCache.isRoChandigarh;
+    const officeValue    = _fciWorkflowCache.officeValue;
+    const entries        = _fciWorkflowCache.entries;
+
+    let targetName, targetOffice, officeType;
+
+    if (isRoChandigarh) {
+      const initiatingEmployee = getInitiatingEmployee(entries);
+      if (!initiatingEmployee) {
+        console.warn(LOG + ' Return to Previous: could not identify initiating official. Payload not built.');
+        return null;
+      }
+      targetName   = initiatingEmployee.employeeName;
+      targetOffice = RO_CHANDIGARH;
+      officeType   = OFFICE_TYPE_RO;
+    } else {
+      const doManagerEntry = getDoManager(entries);
+      if (!doManagerEntry) {
+        console.warn(LOG + ' Return to Previous: could not identify DO Manager. Payload not built.');
+        return null;
+      }
+      targetName   = doManagerEntry.employeeName;
+      targetOffice = officeValue.trim().replace(/\s+/g, ' ').toUpperCase();
+      officeType   = OFFICE_TYPE_DO;
+    }
+
+    return {
+      name: targetName,
+      office: targetOffice,
+      officeType: officeType,
+      remark: RETURN_PREVIOUS_REMARK
+    };
+  }
+
+  // --- Write one payload into the standard fp.* namespace ---
+  function writePayload(key, payload) {
+    if (!payload) return;
+    sessionStorage.setItem('fp.route.' + key + '.name',       payload.name);
+    sessionStorage.setItem('fp.route.' + key + '.office',     payload.office);
+    sessionStorage.setItem('fp.route.' + key + '.officeType', payload.officeType);
+    if (payload.emp) sessionStorage.setItem('fp.route.' + key + '.emp', payload.emp);
+    sessionStorage.setItem('fp.remark.' + key, payload.remark);
+  }
+
+  // --- Precompute and store all three payloads before navigating (Part 6) ---
+  function precomputeAllPayloads(recommendedPayload) {
+    writePayload('recommended',    recommendedPayload);
+    writePayload('reexamine',      buildReexaminePayload());
+    writePayload('returnprevious', buildReturnPreviousPayload());
+    sessionStorage.setItem('fp.request.id', _fciWorkflowCache.requestId || '');
+    sessionStorage.setItem('fp.chosen', 'recommended');
+  }
+
   // --- Fill Reviewer Remarks directly on Review page ---
   function fillReviewerRemarks(remarkText) {
     const editor   = document.getElementById('editor');
@@ -477,5 +656,42 @@
       }
     }, 300);
   }
+
+  // === Floating Window Bridge — required API surface (Part 3) ===
+  window.FCIWorkflow = {
+    getWorkflowContext() {
+      return {
+        requestId: _fciWorkflowCache.requestId,
+        hasRecommendation: _fciWorkflowCache.hasRecommendation,
+        recommendedSummary: _fciWorkflowCache.recommendedSummary
+      };
+    },
+
+    executeReExamine() {
+      const payload = buildReexaminePayload();
+      if (!payload) {
+        console.warn(LOG + ' Re-examine: no valid target resolved. No action taken.');
+        return;
+      }
+      writePayload('reexamine', payload);
+      sessionStorage.setItem('fp.request.id', _fciWorkflowCache.requestId || '');
+      sessionStorage.setItem('fp.chosen', 'reexamine');
+      sessionStorage.setItem('fci_noc_triggered', 'yes');
+      clickAddReviewer();
+    },
+
+    executeReturnPrevious() {
+      const payload = buildReturnPreviousPayload();
+      if (!payload) {
+        console.warn(LOG + ' Return to Previous: no valid target resolved. No action taken.');
+        return;
+      }
+      writePayload('returnprevious', payload);
+      sessionStorage.setItem('fp.request.id', _fciWorkflowCache.requestId || '');
+      sessionStorage.setItem('fp.chosen', 'returnprevious');
+      sessionStorage.setItem('fci_noc_triggered', 'yes');
+      clickAddReviewer();
+    }
+  };
 
 })();

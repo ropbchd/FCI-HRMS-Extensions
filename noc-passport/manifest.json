@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "FCI NOC Passport Assistant",
-  "version": "1.0",
+  "version": "2.0",
   "description": "Automates NOC Passport request processing on FCI HRMS portal",
   "permissions": ["activeTab", "scripting"],
   "host_permissions": [
@@ -23,12 +23,14 @@
     },
     {
       "matches": ["https://www.hrmsfci.in/workflow/review/*"],
-      "js": ["content.js"],
+      "js": ["floating_window.js", "content.js"],
+      "css": ["floating_window.css"],
       "run_at": "document_idle"
     },
     {
       "matches": ["https://www.hrmsfci.in/workflow/add-reviewer/*"],
-      "js": ["content_add_reviewer.js"],
+      "js": ["floating_window.js", "content_add_reviewer.js"],
+      "css": ["floating_window.css"],
       "run_at": "document_idle",
       "world": "MAIN"
     }

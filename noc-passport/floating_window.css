@@ -1,0 +1,138 @@
+/* FCI Workflow Assistant — Floating Window Framework
+   SHARED, UNMODIFIED across every workflow extension. Visual spec per
+   architecture doc Part 4 (sourced from the Audit Leave Assistant panel). */
+
+#fci-floating-window {
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  width: 340px;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid #d0d0d0;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  font-family: Arial, sans-serif;
+  font-size: 13px;
+  z-index: 2147483647;
+  padding: 12px 14px;
+  box-sizing: border-box;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+#fci-floating-window * {
+  box-sizing: border-box;
+}
+
+#fci-floating-window.fci-fp-loaded {
+  border-color: #1D9E75;
+  box-shadow: 0 8px 32px rgba(29, 158, 117, 0.25);
+}
+
+/* --- Drag Header Strip (new green bar) --- */
+.fci-fp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: -12px -14px 10px -14px;
+  padding: 10px 14px;
+  background-color: #029456; /* Green Drag Bar */
+  border-top-left-radius: 9px;
+  border-top-right-radius: 9px;
+  cursor: move;
+  user-select: none;
+}
+
+/* White text & icon for contrast over the green header */
+.fci-fp-title {
+  font-weight: bold;
+  font-size: 13px;
+  color: #ffffff;
+}
+
+.fci-fp-drag-handle {
+  color: #ffffff;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.fci-fp-info-block {
+  background: #f7f9fc;
+  border-left: 3px solid #1D9E75;
+  padding: 6px 8px;
+  margin-bottom: 10px;
+}
+
+.fci-fp-info-primary {
+  font-size: 12px;
+  color: #333;
+}
+
+.fci-fp-info-secondary {
+  font-size: 11px;
+  color: #666;
+  margin-top: 2px;
+}
+
+.fci-fp-section-label {
+  font-size: 11px;
+  font-weight: bold;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 10px 0 4px 0;
+}
+
+.fci-fp-recommended {
+  font-size: 12px;
+  color: #333;
+  line-height: 1.4;
+}
+
+.fci-fp-muted {
+  color: #888;
+}
+
+.fci-fp-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* --- Base Button Styling --- */
+.fci-fp-btn {
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: Arial, sans-serif;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: center;
+  transition: filter 0.15s ease, transform 0.1s ease;
+}
+
+/* Re-examine: Peach / Sand (#FFDBBB) */
+.fci-fp-btn-reexamine {
+  background-color: #FFDBBB;
+  border: 1px solid #E2B792;
+  color: #4A2B0F; /* Dark brown text for legibility */
+}
+.fci-fp-btn-reexamine:hover {
+  filter: brightness(0.93); /* Gently deepens tone on hover */
+}
+
+/* Return to Previous Level: Taupe / Muted Earth (#997E67) */
+.fci-fp-btn-returnprevious {
+  background-color: #997E67;
+  border: 1px solid #7D6550;
+  color: #ffffff; /* White text for contrast on medium dark background */
+}
+.fci-fp-btn-returnprevious:hover {
+  filter: brightness(0.9);
+}
+
+.fci-fp-status {
+  font-size: 12px;
+  color: #888;
+}
