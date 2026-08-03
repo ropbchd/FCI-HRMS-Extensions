@@ -213,6 +213,135 @@ default: return n + 'th';
 }
 }
 
+// --- DATE VALIDATION HELPERS (Stage 3 OK remark date check) ---
+
+function parseDateFromString(dateStr) {
+  if (!dateStr) return null;
+  const match = dateStr.match(/(\d{1,2})[./](\d{1,2})[./](\d{4})/);
+  if (match) {
+    const day = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10) - 1;
+    const year = parseInt(match[3], 10);
+    const date = new Date(year, month, day);
+    if (date.getDate() === day && date.getMonth() === month && date.getFullYear() === year) {
+      return date;
+    }
+  }
+  return null;
+}
+
+function parseDateFromActionHistory(dateStr) {
+  if (!dateStr) return null;
+  const match = dateStr.match(/(\d{1,2})[\/](\d{1,2})[\/](\d{4})/);
+  if (match) {
+    const day = parseInt(match[1], 10);
+    const month = parseInt(match[2], 10) - 1;
+    const year = parseInt(match[3], 10);
+    const date = new Date(year, month, day);
+    if (date.getDate() === day && date.getMonth() === month && date.getFullYear() === year) {
+      return date;
+    }
+  }
+  return null;
+}
+
+function extractFormFillingDate(remark) {
+  if (!remark) return null;
+  const patterns = [
+    /application form was filled on (\d{1,2}[./]\d{1,2}[./]\d{4})/i,
+    /has applied for the exam on (\d{1,2}[./]\d{1,2}[./]\d{4})/i,
+    /application form has been filled on (\d{1,2}[./]\d{1,2}[./]\d{4})/i,
+    /was filled on (\d{1,2}[./]\d{1,2}[./]\d{4})/i,
+    /applied for the exam on (\d{1,2}[./]\d{1,2}[./]\d{4})/i
+  ];
+  for (let i = 0; i < patterns.length; i++) {
+    const match = remark.match(patterns[i]);
+    if (match) {
+      return parseDateFromString(match[1]);
+    }
+  }
+  return null;
+}
+
+function getHrmsInitiationDate(entries) {
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].actionTaken === 'Initiated' && entries[i].dateOfAction) {
+      return parseDateFromActionHistory(entries[i].dateOfAction);
+    }
+  }
+  return null;
+}
+
+function formatDate(date) {
+  if (!date) return 'null';
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  return day + '.' + month + '.' + year;
+}
+
+// --- NOTIFICATION PANEL (visual only, non-blocking) ---
+
+function showDateNotification(hrmsDate, formDate, dayDiff) {
+  const existing = document.getElementById('fci-noc-date-notification');
+  if (existing) existing.remove();
+
+  const isSevere = dayDiff > 7;
+  const panel = document.createElement('div');
+  panel.id = 'fci-noc-date-notification';
+  panel.style.cssText = 'position:fixed;top:20px;right:20px;z-index:99999;width:380px;padding:18px 20px;border-radius:10px;font-family:Arial,sans-serif;font-size:13px;line-height:1.5;box-shadow:0 6px 24px rgba(0,0,0,0.25);transition:opacity 0.3s ease;';
+
+  if (isSevere) {
+    panel.style.backgroundColor = '#fff0f0';
+    panel.style.border = '2px solid #dc3545';
+    panel.style.color = '#721c24';
+  } else {
+    panel.style.backgroundColor = '#fff8e6';
+    panel.style.border = '2px solid #ffc107';
+    panel.style.color = '#856404';
+  }
+
+  const title = isSevere
+    ? '⚠️ Date Mismatch — Exceeds 7-Day Window'
+    : 'ℹ️ Date Mismatch — Within 7-Day Window';
+
+  const message = isSevere
+    ? 'HRMS initiation is <b>' + dayDiff + ' days</b> after the form filling date. This exceeds the permissible window under the circular.'
+    : 'HRMS initiation is <b>' + dayDiff + ' day(s)</b> after the form filling date. Within the 7-day window.';
+
+  panel.innerHTML =
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">' +
+      '<strong style="font-size:14px;">' + title + '</strong>' +
+      '<button id="fci-noc-close-notif" style="background:none;border:none;font-size:18px;cursor:pointer;line-height:1;padding:0 0 0 10px;color:inherit;opacity:0.6;">&times;</button>' +
+    '</div>' +
+    '<div style="margin-bottom:10px;">' + message + '</div>' +
+    '<div style="background:rgba(255,255,255,0.6);padding:10px 12px;border-radius:6px;font-size:12px;margin-bottom:10px;">' +
+      '<div><b>Form Filled:</b> ' + formatDate(formDate) + '</div>' +
+      '<div><b>HRMS Initiated:</b> ' + formatDate(hrmsDate) + '</div>' +
+      '<div><b>Difference:</b> ' + dayDiff + ' day(s)</div>' +
+    '</div>' +
+    '<div style="font-size:11px;opacity:0.85;border-top:1px solid rgba(0,0,0,0.1);padding-top:8px;">' +
+      'This is a non-blocking notification. The extension will continue filling the approval remark as per normal workflow.' +
+    '</div>';
+
+  document.body.appendChild(panel);
+
+  document.getElementById('fci-noc-close-notif').addEventListener('click', function() {
+    panel.style.opacity = '0';
+    setTimeout(function() { panel.remove(); }, 300);
+  });
+
+  // Auto-dismiss after 30 seconds
+  setTimeout(function() {
+    if (document.getElementById('fci-noc-date-notification')) {
+      panel.style.opacity = '0';
+      setTimeout(function() { panel.remove(); }, 300);
+    }
+  }, 30000);
+}
+
+// ----------------------------------------------------------------
+
 // Helper: Find the initiating employee (S.No. 1 - Initiated entry)
 function getInitiatingEmployee(entries) {
 for (let i = 0; i < entries.length; i++) {
@@ -277,6 +406,7 @@ for (let row of allRows) {
   if (cells.length === 8) {  
     currentEntry = {  
       slNo:         cells[0].textContent.trim(),  
+      dateOfAction: cells[1] ? cells[1].textContent.trim() : '',  
       actionTaken:  cells[3].textContent.trim(),  
       employeeName: cells[4].textContent.trim(),  
       designation:  cells[5].textContent.trim(),  
@@ -765,6 +895,23 @@ if (stage3e) {
 } else if (stage3) {  
   const assistantName = lastAssistantReviewed ? lastAssistantReviewed.employeeName : 'Assistant';  
   console.log('[FCI NOC Assistant] Stage 3: Filling approval remark...');  
+
+  // --- Date validation: HRMS initiation date vs form filling date (visual notification only) ---
+  const hrmsDate = getHrmsInitiationDate(entries);
+  const formDate = extractFormFillingDate(lastAssistantReviewed ? lastAssistantReviewed.remark : '');
+  if (hrmsDate && formDate) {
+    if (hrmsDate > formDate) {
+      const oneDay = 24 * 60 * 60 * 1000;
+      const dayDiff = Math.round((hrmsDate - formDate) / oneDay);
+      showDateNotification(hrmsDate, formDate, dayDiff);
+      console.warn('[FCI NOC Assistant] ⚠️ DATE MISMATCH: HRMS (' + formatDate(hrmsDate) + ') is ' + dayDiff + ' day(s) AFTER form date (' + formatDate(formDate) + '). Notification shown. Proceeding with approval remark.');
+    } else {
+      console.log('[FCI NOC Assistant] Date check passed: HRMS date (' + formatDate(hrmsDate) + ') <= Form date (' + formatDate(formDate) + ').');
+    }
+  } else {
+    console.log('[FCI NOC Assistant] Date check skipped: Could not extract HRMS date or form date from remark.');
+  }
+
   highlightTriggerRow(tbody, assistantName, 'Reviewed');  
   const remarkToFill = isRoChandigarh ? STAGE3_REMARK_RO : STAGE3_REMARK_NON_RO;  
   setTimeout(function() { fillReviewerRemarks(remarkToFill, false); }, 2000);  
