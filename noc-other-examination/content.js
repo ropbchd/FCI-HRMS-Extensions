@@ -107,9 +107,112 @@ const PERFORMA_CHECKPOINT = 'performa provided by the FCI';
 const BALJIT_CLEAR_HINDI_RAW = 'सतर्कता दृष्टिकोण से मुक्त है';
 const BALJIT_CLEAR_HINDI = BALJIT_CLEAR_HINDI_RAW.replace(/\s+/g, '');
 
+// Flexible BALJIT detection: also accept partial keyword matches
+// Core concept: "सतर्कता" (vigilance) + "मुक्त" (free) near each other
+const BALJIT_CLEAR_KEYWORDS = ['सतर्कता', 'मुक्त'];
+
 // Mismatch remark: when BALJIT says NOT CLEAR but assistant says "in order"
 const MISMATCH_REMARK_NOT_CLEAR = 'Kindly re-examine the request. As per vigilance records, the concerned employee is not vigilance free.';
 // ----------------------
+
+// === Floating Window Bridge — cached workflow state ===
+let _fciWorkflowCache = {
+  requestId: null,
+  entries: null,
+  cadreValue: null,
+  officeValue: null,
+  isRoChandigarh: null,
+  hasRecommendation: false,
+  recommendedSummary: null,
+  // Precomputed payloads for all three paths
+  payloadRecommended: null,
+  payloadReexamine: null,
+  payloadReturnPrevious: null
+};
+
+// --- SESSIONSTORAGE HELPERS ---
+
+function writeFpPayload(key, data) {
+  // key = 'recommended' | 'reexamine' | 'returnprevious'
+  // data = { name, emp?, office, officeType, remark }
+  if (!data || !data.name) {
+    console.warn('[FCI NOC Assistant] writeFpPayload: invalid data for key "' + key + '"');
+    return;
+  }
+  sessionStorage.setItem('fp.chosen', key);
+  sessionStorage.setItem('fp.route.' + key + '.name',    data.name);
+  sessionStorage.setItem('fp.route.' + key + '.office',  data.office);
+  sessionStorage.setItem('fp.route.' + key + '.officeType', data.officeType);
+  sessionStorage.setItem('fp.remark.' + key,             data.remark);
+  if (data.emp) {
+    sessionStorage.setItem('fp.route.' + key + '.emp', data.emp);
+  } else {
+    sessionStorage.removeItem('fp.route.' + key + '.emp');
+  }
+}
+
+function writeLegacyPayload(stage, data) {
+  // data = { officeType, office, name, emp?, remark }
+  sessionStorage.setItem('fci_noc_stage',                stage);
+  sessionStorage.setItem('fci_noc_office_type',          data.officeType);
+  sessionStorage.setItem('fci_noc_target_office',        data.office);
+  sessionStorage.setItem('fci_noc_assistant_remark',     data.remark);
+  if (data.emp) {
+    sessionStorage.setItem('fci_noc_assistant_emp',    data.emp);
+    sessionStorage.setItem('fci_noc_assistant_name',   data.name);
+    sessionStorage.removeItem('fci_noc_target_employee_name');
+  } else {
+    sessionStorage.setItem('fci_noc_target_employee_name', data.name);
+    sessionStorage.removeItem('fci_noc_assistant_emp');
+    sessionStorage.removeItem('fci_noc_assistant_name');
+  }
+}
+
+// ----------------------------------------------------------------
+
+// --- BRIDGE IMPLEMENTATION ---
+
+window.FCIWorkflow = {
+  getWorkflowContext: function() {
+    return {
+      requestId: _fciWorkflowCache.requestId,
+      hasRecommendation: _fciWorkflowCache.hasRecommendation,
+      recommendedSummary: _fciWorkflowCache.recommendedSummary
+    };
+  },
+
+  executeReExamine: function() {
+    const payload = _fciWorkflowCache.payloadReexamine;
+    if (!payload) {
+      console.warn('[FCI Workflow Assistant] Re-examine: payload not precomputed. No action taken.');
+      return;
+    }
+    sessionStorage.setItem('fp.chosen',                    'reexamine');
+    sessionStorage.setItem('fp.route.reexamine.name',      payload.name);
+    sessionStorage.setItem('fp.route.reexamine.emp',       payload.emp);
+    sessionStorage.setItem('fp.route.reexamine.office',    payload.office);
+    sessionStorage.setItem('fp.route.reexamine.officeType', payload.officeType);
+    sessionStorage.setItem('fp.remark.reexamine',          payload.remark);
+    clickAddReviewer();
+  },
+
+  executeReturnPrevious: function() {
+    const payload = _fciWorkflowCache.payloadReturnPrevious;
+    if (!payload) {
+      console.warn('[FCI Workflow Assistant] Return to Previous: payload not precomputed. No action taken.');
+      return;
+    }
+    sessionStorage.setItem('fp.chosen',                       'returnprevious');
+    sessionStorage.setItem('fp.route.returnprevious.name',    payload.name);
+    sessionStorage.setItem('fp.route.returnprevious.office',  payload.office);
+    sessionStorage.setItem('fp.route.returnprevious.officeType', payload.officeType);
+    sessionStorage.setItem('fp.remark.returnprevious',        payload.remark);
+    clickAddReviewer();
+  }};
+
+// ----------------------------------------------------------------
+
+
 
 // Helper: Check if a remark contains technical error keywords
 function hasTechnicalError(remark) {
@@ -127,11 +230,18 @@ return upperRemark.includes(keyword.toUpperCase());
 });
 }
 
-// Helper: Check if BALJIT's remark indicates "vigilance clear" (Hindi standard phrase)
+// Helper: Check if BALJIT's remark indicates "vigilance clear"
+// Strategy 1: exact phrase match (whitespace-normalized)
+// Strategy 2: all core keywords present (tolerant of phrasing variations)
 function isBaljitClear(remark) {
 if (!remark) return false;
 const normalizedRemark = remark.replace(/\s+/g, '');
-return normalizedRemark.includes(BALJIT_CLEAR_HINDI);
+if (normalizedRemark.includes(BALJIT_CLEAR_HINDI)) return true;
+// Fallback: all core keywords must be present
+const hasAllKeywords = BALJIT_CLEAR_KEYWORDS.every(function(kw) {
+  return normalizedRemark.includes(kw);
+});
+return hasAllKeywords;
 }
 
 // Helper: Check if BALJIT's remark indicates "not clear" (vigilance keywords)
@@ -361,6 +471,19 @@ function getRequestingEmployee(entries) {
 return getInitiatingEmployee(entries);
 }
 
+// Helper: Find the DO Manager (Admin.) via AGM landmark
+// Returns the entry immediately preceding the first AGM entry with a non-empty, non-N/A remark.
+function getDoManagerEntry(entries) {
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].designation.trim() === AGM_DESIGNATION
+        && entries[i].remark.trim() !== 'N/A'
+        && entries[i].remark.trim() !== '') {
+      return i > 0 ? entries[i - 1] : null;
+    }
+  }
+  return null;
+}
+
 // Helper: Read a specific field value from the page by its label's "for" attribute
 function getFieldValue(fieldName) {
 const listItems = document.querySelectorAll('li');
@@ -376,6 +499,9 @@ return '';
 }
 
 // STEP 1: Click View Action History
+let _viewActionHistoryRetries = 0;
+const MAX_VIEW_ACTION_RETRIES = 5;
+
 function clickViewActionHistory() {
 let btn = document.querySelector('a.view-action-history');
 if (!btn) {
@@ -389,7 +515,12 @@ console.log('[FCI NOC Assistant] Step 1: Clicking "View Action History"...');
 btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 waitForTableAndCheck();
 } else {
-console.warn('[FCI NOC Assistant] "View Action History" button not found. Retrying in 2s...');
+_viewActionHistoryRetries++;
+if (_viewActionHistoryRetries >= MAX_VIEW_ACTION_RETRIES) {
+console.error('[FCI NOC Assistant] "View Action History" button not found after ' + MAX_VIEW_ACTION_RETRIES + ' attempts. Giving up.');
+return;
+}
+console.warn('[FCI NOC Assistant] "View Action History" button not found. Retrying in 2s... (attempt ' + _viewActionHistoryRetries + '/' + MAX_VIEW_ACTION_RETRIES + ')');
 setTimeout(clickViewActionHistory, 2000);
 }
 }
@@ -400,28 +531,31 @@ function parsePageEntries(tbody) {
 const allRows = tbody.querySelectorAll('tr');
 const pageEntries = [];
 let currentEntry = null;
+const MIN_DATA_COLUMNS = 6; // tolerate table structure changes (was 8)
 
-for (let row of allRows) {  
-  const cells = row.querySelectorAll('td');  
-  if (cells.length === 8) {  
-    currentEntry = {  
-      slNo:         cells[0].textContent.trim(),  
-      dateOfAction: cells[1] ? cells[1].textContent.trim() : '',  
-      actionTaken:  cells[3].textContent.trim(),  
-      employeeName: cells[4].textContent.trim(),  
-      designation:  cells[5].textContent.trim(),  
-      actionOffice: cells[2] ? cells[2].textContent.trim() : '',  
-      employeeNumber: cells[4].textContent.match(/\d{6}/) ? cells[4].textContent.match(/\d{6}/)[0] : '',  
-      remark:       ''  
-    };  
-    pageEntries.push(currentEntry);  
-  } else if (cells.length === 1 && cells[0].colSpan === 8) {  
-    const fullText = cells[0].textContent.trim();  
-    if (fullText.startsWith('REMARKS:') && currentEntry) {  
-      currentEntry.remark = fullText.replace('REMARKS:', '').trim();  
-    }  
-  }  
-}  
+for (let row of allRows) {
+  const cells = row.querySelectorAll('td');
+  // Data row: enough columns to hold S.No, Date, Version, Action, Name, Designation, Division, Authority
+  if (cells.length >= MIN_DATA_COLUMNS) {
+    currentEntry = {
+      slNo:         cells[0] ? cells[0].textContent.trim() : '',
+      dateOfAction: cells[1] ? cells[1].textContent.trim() : '',
+      actionTaken:  cells[3] ? cells[3].textContent.trim() : '',
+      employeeName: cells[4] ? cells[4].textContent.trim() : '',
+      designation:  cells[5] ? cells[5].textContent.trim() : '',
+      actionOffice: cells[2] ? cells[2].textContent.trim() : '',
+      employeeNumber: (cells[4] && cells[4].textContent.match(/\d{6}/)) ? cells[4].textContent.match(/\d{6}/)[0] : '',
+      remark:       ''
+    };
+    pageEntries.push(currentEntry);
+  } else if (cells.length >= 1) {
+    // Remark row: single cell containing REMARKS: text (tolerate any colSpan)
+    const fullText = cells[0].textContent.trim();
+    if (fullText.startsWith('REMARKS:') && currentEntry) {
+      currentEntry.remark = fullText.replace('REMARKS:', '').trim();
+    }
+  }
+}
 return pageEntries;
 
 }
@@ -648,23 +782,20 @@ console.warn('[FCI NOC Assistant] ⚠️ BALJIT row highlighted in RED, Assistan
 // STEP 3: Decide which stage we are in
 // Receives pre-built entries array + tbody for highlighting
 function checkConditionsAndAct(entries, tbody) {
+// --- POPULATE WORKFLOW CACHE ---
+_fciWorkflowCache.entries        = entries;
+_fciWorkflowCache.cadreValue     = getCadreAndOffice().cadreValue;
+_fciWorkflowCache.officeValue    = getCadreAndOffice().officeValue;
+_fciWorkflowCache.isRoChandigarh = getCadreAndOffice().isRoChandigarh;
+_fciWorkflowCache.requestId      = getRequestId();
+
 // --- READ CADRE AND OFFICE FIRST ---
 const { cadreValue, officeValue, isRoChandigarh } = getCadreAndOffice();
 console.log('[FCI NOC Assistant] Office read from page: "' + officeValue + '"');
 console.log('[FCI NOC Assistant] Cadre read from page:  "' + cadreValue + '"');
 console.log('[FCI NOC Assistant] isRoChandigarh: ' + isRoChandigarh);
 
-// --- Find the DO Manager ---  
-let agmIndex = -1;  
-for (let i = 0; i < entries.length; i++) {  
-  if (entries[i].designation.trim() === AGM_DESIGNATION  
-      && entries[i].remark.trim() !== 'N/A'  
-      && entries[i].remark.trim() !== '') {  
-    agmIndex = i;  
-    break;  
-  }  
-}  
-const doManagerEntry = agmIndex > 0 ? entries[agmIndex - 1] : null;  
+const doManagerEntry = getDoManagerEntry(entries);  
 
 // --- Check STAGE 2 ---  
 let lastReviewedIndex = -1;  
@@ -854,6 +985,38 @@ const stage1c = lastAssistantReviewed
   && afterAssistantReviewed.actionTaken.trim() === STAGE2_NEXT_ACTION  
   && afterAssistantReviewed.remark.trim() === STAGE2_NEXT_REMARK;  
 
+// --- PRECOMPUTE ALTERNATIVE PAYLOADS FOR BRIDGE ---
+const assistantForReexamine = decideAssistant(cadreValue, officeValue);
+if (assistantForReexamine) {
+  _fciWorkflowCache.payloadReexamine = {
+    name: assistantForReexamine.name,
+    emp: assistantForReexamine.empNo,
+    office: RO_CHANDIGARH,
+    officeType: OFFICE_TYPE_RO,
+    remark: 'Kindly re-examine the request in light of the applicable rules and circulars of the Corporation.'
+  };
+}
+
+const doMgr = getDoManagerEntry(entries);
+if (isRoChandigarh) {
+  const initiatingEmployee = getInitiatingEmployee(entries);
+  if (initiatingEmployee) {
+    _fciWorkflowCache.payloadReturnPrevious = {
+      name: initiatingEmployee.name,
+      office: RO_CHANDIGARH,
+      officeType: OFFICE_TYPE_RO,
+      remark: 'The observations recorded in the action history may kindly be perused, and the requisite clarification, confirmation, or documentation furnished for further processing of the request.'
+    };
+  }
+} else if (doMgr) {
+  _fciWorkflowCache.payloadReturnPrevious = {
+    name: doMgr.employeeName,
+    office: officeValue.trim().replace(/\s+/g, ' ').toUpperCase(),
+    officeType: OFFICE_TYPE_DO,
+    remark: 'The observations recorded in the action history may kindly be perused, and the requisite clarification, confirmation, or documentation furnished for further processing of the request.'
+  };
+}
+
 // --- LOGGING ---  
 console.log('[FCI NOC Assistant] Stage 3  (Fill Approval Remark):                  ' + (stage3  ? 'MATCH' : 'no match'));  
 console.log('[FCI NOC Assistant] Stage 3E (Fill Rejection Remark):                 ' + (stage3e ? 'MATCH' : 'no match'));  
@@ -876,7 +1039,9 @@ if (doManagerEntry) {
 
 if (stage3e) {  
   const assistantName = lastAssistantReviewed ? lastAssistantReviewed.employeeName : 'Assistant';  
-  console.log('[FCI NOC Assistant] Stage 3E: Filling rejection proposal remark...');  
+  console.log('[FCI NOC Assistant] Stage 3E: Filling rejection proposal remark...');
+  _fciWorkflowCache.hasRecommendation = true;
+  _fciWorkflowCache.recommendedSummary = 'Stage 3E — Filling rejection proposal remark (vigilance case pending)';
   highlightTriggerRow(tbody, assistantName, 'Reviewed');  
 
   const employeeName   = getFieldValue('employee_name') || 'the official';  
@@ -894,8 +1059,10 @@ if (stage3e) {
 
 } else if (stage3) {  
   const assistantName = lastAssistantReviewed ? lastAssistantReviewed.employeeName : 'Assistant';  
-  console.log('[FCI NOC Assistant] Stage 3: Filling approval remark...');  
-
+  console.log('[FCI NOC Assistant] Stage 3: Filling approval remark...');
+  _fciWorkflowCache.hasRecommendation = true;
+  _fciWorkflowCache.recommendedSummary = 'Stage 3 — Filling approval remark (request is in order)';
+  
   // --- Date validation: HRMS initiation date vs form filling date (visual notification only) ---
   const hrmsDate = getHrmsInitiationDate(entries);
   const formDate = extractFormFillingDate(lastAssistantReviewed ? lastAssistantReviewed.remark : '');
@@ -919,7 +1086,15 @@ if (stage3e) {
 } else if (mismatchNotClear) {  
   const assistantName = lastAssistantReviewed ? lastAssistantReviewed.employeeName : 'Assistant';  
   console.log('[FCI NOC Assistant] ⚠️ MISMATCH: Sending back to Assistant: ' + assistantName);  
-  highlightMismatch(tbody, lastBaljit, lastAssistantReviewed);  
+  highlightMismatch(tbody, lastBaljit, lastAssistantReviewed);
+  _fciWorkflowCache.hasRecommendation = true;
+  _fciWorkflowCache.recommendedSummary = 'Mismatch — Sending back to ' + assistantName + ' for correction';
+  
+  sessionStorage.setItem('fp.chosen',                    'recommended');
+  sessionStorage.setItem('fp.route.recommended.name',    assistantName);
+  sessionStorage.setItem('fp.route.recommended.office',  RO_CHANDIGARH);
+  sessionStorage.setItem('fp.route.recommended.officeType', OFFICE_TYPE_RO);
+  sessionStorage.setItem('fp.remark.recommended',        MISMATCH_REMARK_NOT_CLEAR);
 
   sessionStorage.setItem('fci_noc_stage',                '3mismatch');  
   sessionStorage.setItem('fci_noc_office_type',          OFFICE_TYPE_RO);  
@@ -932,7 +1107,9 @@ if (stage3e) {
 
 } else if (mismatchClear || mismatchAmbiguous) {  
   console.log('[FCI NOC Assistant] ⚠️ MISMATCH detected. Please review manually.');  
-  highlightMismatch(tbody, lastBaljit, lastAssistantReviewed);  
+  highlightMismatch(tbody, lastBaljit, lastAssistantReviewed);
+  _fciWorkflowCache.hasRecommendation = false;
+  _fciWorkflowCache.recommendedSummary = null;  
 
 } else if (stage3b) {  
   if (!doManagerEntry) {  
@@ -945,7 +1122,15 @@ if (stage3e) {
   const stage3bRemark = 'Reference may be made to the observations recorded during examination of the request at Sl. No. ' + assistantSlNo + '. Required necessary clarifications and/or supporting documents, as indicated, may kindly be furnished for further processing.';  
 
   console.log('[FCI NOC Assistant] Stage 3B: Sending back to DO Manager: ' + doManagerName);  
-  highlightTriggerRow(tbody, assistantName, 'Reviewed');  
+  highlightTriggerRow(tbody, assistantName, 'Reviewed');
+  _fciWorkflowCache.hasRecommendation = true;
+  _fciWorkflowCache.recommendedSummary = 'Stage 3B — Sending back to DO Manager ' + doManagerName;
+  
+  sessionStorage.setItem('fp.chosen',                    'recommended');
+  sessionStorage.setItem('fp.route.recommended.name',    doManagerName);
+  sessionStorage.setItem('fp.route.recommended.office',  officeValue.trim().replace(/\s+/g, ' ').toUpperCase());
+  sessionStorage.setItem('fp.route.recommended.officeType', OFFICE_TYPE_DO);
+  sessionStorage.setItem('fp.remark.recommended',        stage3bRemark);
 
   sessionStorage.setItem('fci_noc_stage',                '3b');  
   sessionStorage.setItem('fci_noc_office_type',          OFFICE_TYPE_DO);  
@@ -968,7 +1153,15 @@ if (stage3e) {
   const stage3dRemark  = 'Reference may be made to the observations recorded during examination of the request at Sl. No. ' + assistantSlNo + '. Required necessary clarifications and/or supporting documents, as indicated, may kindly be furnished for further processing.';  
 
   console.log('[FCI NOC Assistant] Stage 3D: Sending back to initiating official: ' + initiatingName);  
-  highlightTriggerRow(tbody, assistantName, 'Reviewed');  
+  highlightTriggerRow(tbody, assistantName, 'Reviewed');
+  _fciWorkflowCache.hasRecommendation = true;
+  _fciWorkflowCache.recommendedSummary = 'Stage 3D — Sending back to initiating official ' + initiatingName;
+  
+  sessionStorage.setItem('fp.chosen',                    'recommended');
+  sessionStorage.setItem('fp.route.recommended.name',    initiatingName);
+  sessionStorage.setItem('fp.route.recommended.office',  RO_CHANDIGARH);
+  sessionStorage.setItem('fp.route.recommended.officeType', OFFICE_TYPE_RO);
+  sessionStorage.setItem('fp.remark.recommended',        stage3dRemark);
 
   sessionStorage.setItem('fci_noc_stage',                '3d');  
   sessionStorage.setItem('fci_noc_office_type',          OFFICE_TYPE_RO);  
@@ -983,8 +1176,15 @@ if (stage3e) {
   const assistant = decideAssistant(cadreValue, officeValue);  
   if (!assistant) return;  
   console.log('[FCI NOC Assistant] Stage 3C: Re-routing to ' + assistant.name + '...');  
-  highlightTriggerRow(tbody, doManagerEntry.employeeName, entryBeforeAmitPending.actionTaken);  
-
+  highlightTriggerRow(tbody, doManagerEntry.employeeName, entryBeforeAmitPending.actionTaken);
+  _fciWorkflowCache.hasRecommendation = true;
+  _fciWorkflowCache.recommendedSummary = 'Stage 3C — Re-routing to ' + assistant.name;
+  
+  writeFpPayload('recommended', {
+    name: assistant.name, emp: assistant.empNo,
+    office: RO_CHANDIGARH, officeType: OFFICE_TYPE_RO,
+    remark: ASSISTANT_REMARK
+  });
   sessionStorage.setItem('fci_noc_stage',            '3c');  
   sessionStorage.setItem('fci_noc_office_type',      OFFICE_TYPE_RO);  
   sessionStorage.setItem('fci_noc_target_office',    RO_CHANDIGARH);  
@@ -995,8 +1195,10 @@ if (stage3e) {
   setTimeout(clickAddReviewer, 2000);  
 
 } else if (stage1d) {  
-  console.log('[FCI NOC Assistant] Stage 1D: Technical error detected.');  
-
+  console.log('[FCI NOC Assistant] Stage 1D: Technical error detected.');
+  _fciWorkflowCache.hasRecommendation = true;
+  _fciWorkflowCache.recommendedSummary = 'Stage 1D — Technical error: sending back for re-upload';
+  
   if (isRoChandigarh) {  
     const requestingEmployee = getRequestingEmployee(entries);  
     if (!requestingEmployee) {  
@@ -1005,6 +1207,12 @@ if (stage3e) {
     }  
     const technicalRemark = 'The attachments submitted with the request are not accessible for viewing or downloading due to a technical error. Kindly re-submit the required documents/attachments for further processing.';  
     highlightTriggerRow(tbody, techErrorEntry.employeeName, 'Reviewed');  
+
+    sessionStorage.setItem('fp.chosen',                    'recommended');
+    sessionStorage.setItem('fp.route.recommended.name',    requestingEmployee.name);
+    sessionStorage.setItem('fp.route.recommended.office',  RO_CHANDIGARH);
+    sessionStorage.setItem('fp.route.recommended.officeType', OFFICE_TYPE_RO);
+    sessionStorage.setItem('fp.remark.recommended',        technicalRemark);
 
     sessionStorage.setItem('fci_noc_stage',                '1d-ro');  
     sessionStorage.setItem('fci_noc_office_type',          OFFICE_TYPE_RO);  
@@ -1023,6 +1231,12 @@ if (stage3e) {
     const technicalRemark = 'Due to an inadvertent technical issue, the documents earlier uploaded for processing the request are not accessible, as the attachments are not opening. It is therefore requested to kindly upload the requisite documents again and resubmit the request for further processing.';  
     highlightTriggerRow(tbody, techErrorEntry.employeeName, 'Reviewed');  
 
+    sessionStorage.setItem('fp.chosen',                    'recommended');
+    sessionStorage.setItem('fp.route.recommended.name',    doManagerEntry.employeeName);
+    sessionStorage.setItem('fp.route.recommended.office',  officeValue.trim().replace(/\s+/g, ' ').toUpperCase());
+    sessionStorage.setItem('fp.route.recommended.officeType', OFFICE_TYPE_DO);
+    sessionStorage.setItem('fp.remark.recommended',        technicalRemark);
+
     sessionStorage.setItem('fci_noc_stage',                '1d-do');  
     sessionStorage.setItem('fci_noc_office_type',          OFFICE_TYPE_DO);  
     sessionStorage.setItem('fci_noc_target_office',        officeValue.trim().replace(/\s+/g, ' ').toUpperCase());  
@@ -1037,7 +1251,16 @@ if (stage3e) {
   const assistant = decideAssistant(cadreValue, officeValue);  
   if (assistant) {  
     console.log('[FCI NOC Assistant] Stage 2: Routing to ' + assistant.name + '...');  
-    highlightTriggerRow(tbody, 'ABHIMANYU SWAMI', 'Reviewed');  
+    highlightTriggerRow(tbody, 'ABHIMANYU SWAMI', 'Reviewed');
+    _fciWorkflowCache.hasRecommendation = true;
+    _fciWorkflowCache.recommendedSummary = 'Stage 2 — Routing to ' + assistant.name + ' for admin. clearance';
+    
+    sessionStorage.setItem('fp.chosen',                    'recommended');
+    sessionStorage.setItem('fp.route.recommended.name',    assistant.name);
+    sessionStorage.setItem('fp.route.recommended.emp',     assistant.empNo);
+    sessionStorage.setItem('fp.route.recommended.office',    RO_CHANDIGARH);
+    sessionStorage.setItem('fp.route.recommended.officeType', OFFICE_TYPE_RO);
+    sessionStorage.setItem('fp.remark.recommended',        ASSISTANT_REMARK);
 
     sessionStorage.setItem('fci_noc_stage',            '2');  
     sessionStorage.setItem('fci_noc_office_type',      OFFICE_TYPE_RO);  
@@ -1051,7 +1274,16 @@ if (stage3e) {
 
 } else if (stage1c) {  
   console.log('[FCI NOC Assistant] Stage 1C: Sending to ABHIMANYU SWAMI for vigilance clearance...');  
-  highlightTriggerRow(tbody, lastAssistantReviewed.employeeName, 'Reviewed');  
+  highlightTriggerRow(tbody, lastAssistantReviewed.employeeName, 'Reviewed');
+  _fciWorkflowCache.hasRecommendation = true;
+  _fciWorkflowCache.recommendedSummary = 'Stage 1C — Sending to ABHIMANYU SWAMI for vigilance clearance';
+  
+  sessionStorage.setItem('fp.chosen',                    'recommended');
+  sessionStorage.setItem('fp.route.recommended.name',    STAGE1C_TARGET_NAME);
+  sessionStorage.setItem('fp.route.recommended.emp',       STAGE1C_TARGET_NUMBER);
+  sessionStorage.setItem('fp.route.recommended.office',  RO_CHANDIGARH);
+  sessionStorage.setItem('fp.route.recommended.officeType', OFFICE_TYPE_RO);
+  sessionStorage.setItem('fp.remark.recommended',        STAGE1C_REMARK);
 
   sessionStorage.setItem('fci_noc_stage',            '1c');  
   sessionStorage.setItem('fci_noc_office_type',      OFFICE_TYPE_RO);  
@@ -1066,7 +1298,16 @@ if (stage3e) {
   const assistant = decideAssistant(cadreValue, officeValue);  
   if (assistant) {  
     console.log('[FCI NOC Assistant] Stage 1B: Routing to ' + assistant.name + '...');  
-    highlightTriggerRow(tbody, 'MAYURESH KUMAR', 'Dispatched');  
+    highlightTriggerRow(tbody, 'MAYURESH KUMAR', 'Dispatched');
+    _fciWorkflowCache.hasRecommendation = true;
+    _fciWorkflowCache.recommendedSummary = 'Stage 1B — Routing to ' + assistant.name + ' for performa';
+    
+    sessionStorage.setItem('fp.chosen',                    'recommended');
+    sessionStorage.setItem('fp.route.recommended.name',    assistant.name);
+    sessionStorage.setItem('fp.route.recommended.emp',     assistant.empNo);
+    sessionStorage.setItem('fp.route.recommended.office',    RO_CHANDIGARH);
+    sessionStorage.setItem('fp.route.recommended.officeType', OFFICE_TYPE_RO);
+    sessionStorage.setItem('fp.remark.recommended',        PERFORMA_REMARK);
 
     sessionStorage.setItem('fci_noc_stage',            '1b');  
     sessionStorage.setItem('fci_noc_office_type',      OFFICE_TYPE_RO);  
@@ -1081,7 +1322,16 @@ if (stage3e) {
 } else if (stage1) {  
   // Stage 1: FIXED — now explicitly sets all routing data for ABHIMANYU SWAMI  
   console.log('[FCI NOC Assistant] Stage 1: Routing to ABHIMANYU SWAMI...');  
-  highlightTriggerRow(tbody, 'MAYURESH KUMAR', 'Dispatched');  
+  highlightTriggerRow(tbody, 'MAYURESH KUMAR', 'Dispatched');
+  _fciWorkflowCache.hasRecommendation = true;
+  _fciWorkflowCache.recommendedSummary = 'Stage 1 — Routing to ABHIMANYU SWAMI for vigilance clearance';
+  
+  sessionStorage.setItem('fp.chosen',                    'recommended');
+  sessionStorage.setItem('fp.route.recommended.name',    STAGE1C_TARGET_NAME);
+  sessionStorage.setItem('fp.route.recommended.emp',     STAGE1C_TARGET_NUMBER);
+  sessionStorage.setItem('fp.route.recommended.office',  RO_CHANDIGARH);
+  sessionStorage.setItem('fp.route.recommended.officeType', OFFICE_TYPE_RO);
+  sessionStorage.setItem('fp.remark.recommended',        STAGE1C_REMARK);
 
   sessionStorage.setItem('fci_noc_stage',            '1');  
   sessionStorage.setItem('fci_noc_office_type',      OFFICE_TYPE_RO);  
@@ -1093,8 +1343,17 @@ if (stage3e) {
   setTimeout(clickAddReviewer, 2000);  
 
 } else {  
-  console.log('[FCI NOC Assistant] No matching stage found. No action taken.');  
+  console.log('[FCI NOC Assistant] No matching stage found. No action taken.');
+  _fciWorkflowCache.hasRecommendation = false;
+  _fciWorkflowCache.recommendedSummary = null;
 }
+
+  // Render floating panel now that bridge is populated
+  if (window.FloatingWindow && typeof window.FloatingWindow.render === 'function') {
+    window.FloatingWindow.render();
+  } else {
+    console.log('[FCI NOC Assistant] Floating window not available (expected if floating_window.js is not loaded).');
+  }
 
 }
 

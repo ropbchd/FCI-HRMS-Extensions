@@ -1,7 +1,7 @@
 // FCI NOC Assistant — Add Reviewer Page Script
 // Runs on workflow/add-reviewer/*
 // Reads sessionStorage handoff from content.js and fills the Add Reviewer form.
-// v4.5.1 — Added scrollIntoView for Reason editor
+// v5.0 — Floating Window Framework: fp.chosen support + bridge implementation
 // world: "MAIN" — runs in page context to access jQuery/Select2
 
 (function () {
@@ -23,27 +23,47 @@
   }
   sessionStorage.removeItem('fci_noc_triggered');
 
-  // --- READ SESSION STORAGE HANDOFF ---
-  const stage              = sessionStorage.getItem('fci_noc_stage');
-  const officeType         = sessionStorage.getItem('fci_noc_office_type');
-  const targetOffice       = sessionStorage.getItem('fci_noc_target_office');
-  const targetEmployeeName = sessionStorage.getItem('fci_noc_target_employee_name');
-  const assistantEmp       = sessionStorage.getItem('fci_noc_assistant_emp');
-  const assistantName      = sessionStorage.getItem('fci_noc_assistant_name');
-  const assistantRemark    = sessionStorage.getItem('fci_noc_assistant_remark');
+  // --- READ FP.CHOSEN AND PAYLOAD ---
+  let chosen = sessionStorage.getItem('fp.chosen') || 'recommended';
+  let payload = readPayload(chosen);
 
-  if (!stage) {
-    console.log('[FCI NOC Assistant] Add Reviewer: No stage in sessionStorage. No action taken.');
-    return;
+  if (!payload) {
+    console.warn('[FCI NOC Assistant] Add Reviewer: No payload found for fp.chosen="' + chosen + '". Falling back to legacy sessionStorage keys.');
+    payload = readLegacyPayload();
+    if (!payload) {
+      console.warn('[FCI NOC Assistant] Add Reviewer: No payload available. No action taken.');
+      return;
+    }
   }
 
-  console.log('[FCI NOC Assistant] Add Reviewer: Stage = ' + stage);
-  console.log('[FCI NOC Assistant] Add Reviewer: Office Type = ' + officeType);
-  console.log('[FCI NOC Assistant] Add Reviewer: Target Office = ' + targetOffice);
-  console.log('[FCI NOC Assistant] Add Reviewer: Target Employee Name = ' + targetEmployeeName);
-  console.log('[FCI NOC Assistant] Add Reviewer: Assistant Emp = ' + assistantEmp);
-  console.log('[FCI NOC Assistant] Add Reviewer: Assistant Name = ' + assistantName);
-  console.log('[FCI NOC Assistant] Add Reviewer: Remark = ' + assistantRemark);
+  console.log('[FCI NOC Assistant] Add Reviewer: Chosen payload = ' + chosen);
+  console.log('[FCI NOC Assistant] Add Reviewer: Payload name = ' + (payload.name || 'N/A'));
+  console.log('[FCI NOC Assistant] Add Reviewer: Payload office = ' + (payload.office || 'N/A'));
+  console.log('[FCI NOC Assistant] Add Reviewer: Payload remark = ' + (payload.remark || 'N/A'));
+
+  // --- PAYLOAD READERS ---
+
+  function readPayload(key) {
+    const name      = sessionStorage.getItem('fp.route.' + key + '.name');
+    const emp       = sessionStorage.getItem('fp.route.' + key + '.emp');
+    const office    = sessionStorage.getItem('fp.route.' + key + '.office');
+    const officeType = sessionStorage.getItem('fp.route.' + key + '.officeType');
+    const remark    = sessionStorage.getItem('fp.remark.' + key);
+    if (!name && !emp) return null;
+    return { name: name, emp: emp, office: office, officeType: officeType, remark: remark };
+  }
+
+  function readLegacyPayload() {
+    // Fallback: read old-style keys for backward compatibility
+    const name      = sessionStorage.getItem('fci_noc_assistant_name')
+                     || sessionStorage.getItem('fci_noc_target_employee_name');
+    const emp       = sessionStorage.getItem('fci_noc_assistant_emp');
+    const office    = sessionStorage.getItem('fci_noc_target_office');
+    const officeType = sessionStorage.getItem('fci_noc_office_type');
+    const remark    = sessionStorage.getItem('fci_noc_assistant_remark');
+    if (!name && !emp) return null;
+    return { name: name, emp: emp, office: office, officeType: officeType, remark: remark };
+  }
 
   // --- SELECT2 HELPERS (script-tag injection — required for world: MAIN) ---
 
@@ -66,7 +86,8 @@
   function waitForDropdownAndSelectByText(selectId, matchValue, callback, maxAttempts) {
     maxAttempts = maxAttempts || 40;
     let attempts = 0;
-    const targetNorm = matchValue.toString().trim().replace(/\s+/g, ' ').toUpperCase();
+    // --- FIX: NBSP-aware normalization (collapse all whitespace including NBSP) ---
+    const targetNorm = matchValue.toString().trim().replace(/[\s\xa0]+/g, ' ').toUpperCase();
 
     const interval = setInterval(function () {
       attempts++;
@@ -82,12 +103,25 @@
         return;
       }
 
+      // Phase 1: exact match (normalized)
       let matchedValue = null;
       for (let opt of options) {
-        const optText = opt.textContent.trim().replace(/\s+/g, ' ').toUpperCase();
-        if (optText.includes(targetNorm)) {
+        // --- FIX: NBSP-aware normalization for option text ---
+        const optText = opt.textContent.trim().replace(/[\s\xa0]+/g, ' ').toUpperCase();
+        if (optText === targetNorm) {
           matchedValue = opt.value;
           break;
+        }
+      }
+
+      // Phase 2: substring match (fallback)
+      if (matchedValue === null) {
+        for (let opt of options) {
+          const optText = opt.textContent.trim().replace(/[\s\xa0]+/g, ' ').toUpperCase();
+          if (optText.includes(targetNorm)) {
+            matchedValue = opt.value;
+            break;
+          }
         }
       }
 
@@ -121,22 +155,22 @@
       return;
     }
 
-    selectEl.value = officeType;
-    triggerSelect2('filter_office_type', officeType);
+    const ot = payload.officeType || sessionStorage.getItem('fci_noc_office_type') || '4';
+    selectEl.value = ot;
+    triggerSelect2('filter_office_type', ot);
     selectEl.dispatchEvent(new Event('change', { bubbles: true }));
-    console.log('[FCI NOC Assistant] Add Reviewer: Office Type set to ' + officeType);
-    // Allow Select2 change handler to fire before next step
+    console.log('[FCI NOC Assistant] Add Reviewer: Office Type set to ' + ot);
     setTimeout(function() { callback(true); }, 800);
   }
 
   function fillOffice(callback) {
-    // Purely data-driven: if targetOffice is set, select it; otherwise skip
-    if (!targetOffice) {
+    const office = payload.office;
+    if (!office) {
       console.log('[FCI NOC Assistant] Add Reviewer: No target office — skipping office selection.');
       callback(true);
       return;
     }
-    waitForDropdownAndSelectByText('filter_office', targetOffice, function(success) {
+    waitForDropdownAndSelectByText('filter_office', office, function(success) {
       if (!success) {
         console.warn('[FCI NOC Assistant] Add Reviewer: Office selection failed. Continuing anyway...');
       }
@@ -152,16 +186,15 @@
       console.warn('[FCI NOC Assistant] Add Reviewer: #editor not found.');
       return false;
     }
-    if (!assistantRemark) {
+    const remark = payload.remark;
+    if (!remark) {
       console.warn('[FCI NOC Assistant] Add Reviewer: No remark text to fill.');
       return false;
     }
 
-    // SCROLL TO REASON EDITOR (same pattern as content.js fillReviewerRemarks)
     editor.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-    editor.innerText = assistantRemark;
-    if (comments) comments.value = assistantRemark;
+    editor.innerText = remark;
+    if (comments) comments.value = remark;
     editor.dispatchEvent(new Event('input', { bubbles: true }));
     editor.dispatchEvent(new Event('blur',  { bubbles: true }));
 
@@ -169,83 +202,121 @@
     return true;
   }
 
-  // Single employee selection function — data-driven, no stage flags
-  // Priority: assistantEmp in option text → assistantName in option text → targetEmployeeName in option text
   function selectEmployee(callback) {
+    const emp  = payload.emp;
+    const name = payload.name;
 
-    // Validation: warn if both identifiers are set (should never happen with clean content.js)
-    if (assistantEmp && targetEmployeeName) {
-      console.warn('[FCI NOC Assistant] Add Reviewer: ⚠️ Both assistantEmp and targetEmployeeName are set. Using assistantEmp as primary. Check content.js routing for stage "' + stage + '".');
+    if (emp && name) {
+      console.warn('[FCI NOC Assistant] Add Reviewer: ⚠️ Both emp and name are set. Using emp as primary. Check content.js routing.');
     }
 
-    if (assistantEmp) {
-      // Primary: search option text for emp number, fallback to name
-      console.log('[FCI NOC Assistant] Add Reviewer: Selecting employee by empNo: ' + assistantEmp);
-      waitForDropdownAndSelectByText('filter_employee', assistantEmp, function(success) {
+    if (emp) {
+      console.log('[FCI NOC Assistant] Add Reviewer: Selecting employee by empNo: ' + emp);
+      waitForDropdownAndSelectByText('filter_employee', emp, function(success) {
         if (success) {
           console.log('[FCI NOC Assistant] Add Reviewer: Employee selected by empNo.');
           callback(true);
-        } else if (assistantName) {
-          // Fallback: try matching by name
-          console.log('[FCI NOC Assistant] Add Reviewer: empNo not found in text. Trying name fallback: ' + assistantName);
-          waitForDropdownAndSelectByText('filter_employee', assistantName, function(nameSuccess) {
+        } else if (name) {
+          console.log('[FCI NOC Assistant] Add Reviewer: empNo not found. Trying name fallback: ' + name);
+          waitForDropdownAndSelectByText('filter_employee', name, function(nameSuccess) {
             if (!nameSuccess) {
               console.warn('[FCI NOC Assistant] Add Reviewer: Employee not found by empNo or name. Please select manually.');
             }
             callback(nameSuccess);
           }, 20);
         } else {
-          console.warn('[FCI NOC Assistant] Add Reviewer: Employee not found by empNo and no name fallback available.');
+          console.warn('[FCI NOC Assistant] Add Reviewer: Employee not found by empNo and no name fallback.');
           callback(false);
         }
       }, 30);
-
-    } else if (targetEmployeeName) {
-      // Name-based selection (for stages 3B, 3D, 3Mismatch, 1D variants)
-      console.log('[FCI NOC Assistant] Add Reviewer: Selecting employee by name: ' + targetEmployeeName);
-      waitForDropdownAndSelectByText('filter_employee', targetEmployeeName, function(success) {
+    } else if (name) {
+      console.log('[FCI NOC Assistant] Add Reviewer: Selecting employee by name: ' + name);
+      waitForDropdownAndSelectByText('filter_employee', name, function(success) {
         if (!success) {
-          console.warn('[FCI NOC Assistant] Add Reviewer: Employee "' + targetEmployeeName + '" not found. Please select manually.');
+          console.warn('[FCI NOC Assistant] Add Reviewer: Employee "' + name + '" not found. Please select manually.');
         }
         callback(success);
       }, 30);
-
     } else {
-      console.log('[FCI NOC Assistant] Add Reviewer: No employee identifier provided — skipping employee selection.');
+      console.log('[FCI NOC Assistant] Add Reviewer: No employee identifier — skipping.');
       callback(true);
     }
   }
 
-  // --- MAIN EXECUTION FLOW ---
+  // --- MAIN FILL ROUTINE ---
 
-  function execute() {
+  function fillForm(currentPayload, callback) {
+    // Update global payload reference for this fill
+    payload = currentPayload;
+
     console.log('[FCI NOC Assistant] Add Reviewer: Starting form fill sequence...');
 
-    // Step 1: Fill Office Type
     fillOfficeType(function(officeTypeOk) {
       if (!officeTypeOk) {
         console.warn('[FCI NOC Assistant] Add Reviewer: Office Type failed. Aborting.');
+        if (callback) callback(false);
         return;
       }
 
-      // Step 2: Fill Office
       fillOffice(function(officeOk) {
-        if (!officeOk && targetOffice) {
-          console.warn('[FCI NOC Assistant] Add Reviewer: Office fill failed. Continuing anyway...');
+        if (!officeOk && payload.office) {
+          console.warn('[FCI NOC Assistant] Add Reviewer: Office fill failed. Continuing...');
         }
 
-        // Step 3: Fill Reason/Remark
         fillReason();
 
-        // Step 4: Select Employee (data-driven, no stage flags)
         selectEmployee(function(empOk) {
           console.log('[FCI NOC Assistant] Add Reviewer: Form filling complete. Please review and click Add yourself.');
+          if (callback) callback(true);
         });
       });
     });
   }
 
-  // --- NAVIGATE TO LAST PAGE OF ACTION HISTORY BEFORE FILLING FORM ---
+  // --- PAYLOAD SWITCHER (for in-place override on Add Reviewer page) ---
+
+  function switchPayload(key) {
+    const newPayload = readPayload(key);
+    if (!newPayload) {
+      console.warn('[FCI Workflow Assistant] Cannot switch to "' + key + '" — payload not precomputed or incomplete.');
+      return;
+    }
+    chosen = key;
+    sessionStorage.setItem('fp.chosen', key);
+    console.log('[FCI Workflow Assistant] Switching to payload: ' + key);
+    fillForm(newPayload, function(success) {
+      if (success) {
+        console.log('[FCI Workflow Assistant] Form re-filled with "' + key + '" payload.');
+      }
+    });
+  }
+
+  function chosenLabel(key) {
+    if (key === 'recommended') return 'Recommended';
+    if (key === 'reexamine') return 'Re-examine';
+    if (key === 'returnprevious') return 'Return to Previous';
+    return key;
+  }
+
+  // --- BRIDGE (Add Reviewer page variant) ---
+
+  window.FCIWorkflow = {
+    getWorkflowContext: function() {
+      return {
+        requestId: noeMatch[0],
+        hasRecommendation: true,
+        recommendedSummary: 'Currently filling as: ' + chosenLabel(chosen) + ' — routing to ' + (payload.name || 'N/A')
+      };
+    },
+    executeReExamine: function() {
+      switchPayload('reexamine');
+    },
+    executeReturnPrevious: function() {
+      switchPayload('returnprevious');
+    }
+  };
+
+  // --- NAVIGATE TO LAST PAGE OF ACTION HISTORY ---
   function goToLastPage(callback) {
     let attempts = 0;
     const interval = setInterval(function () {
@@ -290,18 +361,15 @@
     }, 500);
   }
 
-  // --- WAIT FOR JQUERY & SELECT2 (DIAGNOSTIC VERSION) ---
-  // This version only adds extra logging — no logic changes
+  // --- WAIT FOR JQUERY & SELECT2 ---
   function waitForJQuery(callback) {
     let attempts = 0;
     const maxAttempts = 20;
 
     function check() {
       attempts++;
-
       console.log(
-        '[FCI NOC Assistant] Attempt',
-        attempts,
+        '[FCI NOC Assistant] Attempt', attempts,
         '| typeof jQuery =', typeof window.jQuery,
         '| typeof $ =', typeof window.$,
         '| select2 =',
@@ -325,16 +393,27 @@
   }
 
   // --- STARTUP ---
-  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+  function startup() {
     waitForJQuery(function() {
-      setTimeout(function() { goToLastPage(function() { setTimeout(execute, 1000); }); }, 500);
+      setTimeout(function() {
+        goToLastPage(function() {
+          setTimeout(function() {
+            fillForm(payload, function() {
+              // Render floating panel after form is filled
+              if (window.FloatingWindow && typeof window.FloatingWindow.render === 'function') {
+                window.FloatingWindow.render();
+              }
+            });
+          }, 1000);
+        });
+      }, 500);
     });
+  }
+
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    startup();
   } else {
-    document.addEventListener('DOMContentLoaded', function() {
-      waitForJQuery(function() {
-        setTimeout(function() { goToLastPage(function() { setTimeout(execute, 1000); }); }, 500);
-      });
-    });
+    document.addEventListener('DOMContentLoaded', startup);
   }
 
 })();
