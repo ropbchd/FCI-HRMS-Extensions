@@ -3,7 +3,7 @@
 **Request Type:** NOC For Other Examination\
 **Request ID Prefix:** `NOE`\
 **Folder:** `noc-other-examination/`\
-**Current Version:** v4.5\
+**Current Version:** v5.0 (Floating Window Framework)\
 **Portal URL:** hrmsfci.in\
 **Listing Page:** `hrmsfci.in/er/noc/other-examination`
 
@@ -16,6 +16,13 @@ Examination requests on the FCI HRMS portal. It reads the action history
 of each request, determines the correct next step, and fills the Add
 Reviewer form or Reviewer Remarks box automatically. The officer always
 performs the final submission manually.
+
+As of v5.0, the extension also renders a floating panel (shared
+Floating Window Framework, see `Floating_Window_Architecture.md`) on
+both the Review page and the Add Reviewer page, showing the detected
+recommendation and offering two alternative actions --- **Re-examine**
+and **Return to Previous Level** --- that the officer can choose instead
+of the automatically detected action.
 
 ------------------------------------------------------------------------
 
@@ -32,11 +39,27 @@ performs the final submission manually.
 
   `content.js`                        Review page --- detects stage and
                                       acts (single source of truth for
-                                      all routing logic)
+                                      all routing logic). Also exposes
+                                      `window.FCIWorkflow` (Floating
+                                      Window bridge) and precomputes
+                                      alternative-action payloads.
 
   `content_add_reviewer.js`           Add Reviewer page --- reads
-                                      sessionStorage and fills the form
-                                      (zero business logic)
+                                      sessionStorage and fills the form.
+                                      Contains no stage-detection logic,
+                                      but does implement its own
+                                      `window.FCIWorkflow` bridge variant
+                                      and the live in-place payload
+                                      switcher.
+
+  `floating_window.js`                Shared floating panel logic
+                                      (workflow-agnostic). Calls
+                                      `window.FCIWorkflow` on whichever
+                                      page it's injected into.
+
+  `floating_window.css`               Shared floating panel styling.
+                                      Injected declaratively via
+                                      `manifest.json`.
 
   `popup.html`                        Extension popup (status display)
 
@@ -61,9 +84,11 @@ extension files:
 >
 > Please read this README completely before doing anything. Then read
 > the attached files: - `content.js` --- the main review page script
-> (all routing logic lives here) - `content_add_reviewer.js` --- the Add
-> Reviewer page script (data-driven, no business logic) - `CHANGELOG.md`
-> --- version history
+> (all routing logic + Floating Window bridge lives here) -
+> `content_add_reviewer.js` --- the Add Reviewer page script (form
+> filling + its own Floating Window bridge variant) - `floating_window.js`
+> / `floating_window.css` --- shared panel framework, workflow-agnostic -
+> `CHANGELOG.md` --- version history
 >
 > **Your role is technical consultant.** Do not write or modify any code
 > without my explicit consent. Discuss, confirm understanding, propose
@@ -116,13 +141,77 @@ Add Reviewer page:
                                       field
   -----------------------------------------------------------------------
 
-**`content_add_reviewer.js`** contains zero business logic. It
+**`content_add_reviewer.js`** contains no stage-detection logic. It
 simply: 1. Reads the stored values 2. Selects Office Type 3. Selects
 Office (if `target_office` is set) 4. Fills the Reason/Remark field 5.
 Selects Employee --- data-driven: - If `assistant_emp` set → search
 option text for emp number, fallback to name - If only
 `target_employee_name` set → search option text for name - If both set →
 warn and use `assistant_emp` (signals a bug in `content.js`)
+
+### Floating Window Bridge (v5.0)
+
+`content.js` also writes a second, parallel namespace of sessionStorage
+keys (`fp.*`) alongside the seven legacy keys above --- a compatibility
+adapter, not a replacement. Both are written on every stage match, so
+`content_add_reviewer.js` can read either.
+
+  -----------------------------------------------------------------------
+  sessionStorage Key                        Purpose
+  ------------------------------------------ ----------------------------
+  `fp.chosen`                                Which payload is active:
+                                              `"recommended"`,
+                                              `"reexamine"`, or
+                                              `"returnprevious"`
+
+  `fp.route.<chosen>.name`                   Target employee name
+
+  `fp.route.<chosen>.emp`                    Target employee number
+                                              (RO-level only; omitted for
+                                              name-based selection)
+
+  `fp.route.<chosen>.office`                 Target office name
+
+  `fp.route.<chosen>.officeType`             Office Type value (`"4"`
+                                              RO / `"5"` DO)
+
+  `fp.remark.<chosen>`                       Remark text for the chosen
+                                              action
+  -----------------------------------------------------------------------
+
+**`content.js`** exposes `window.FCIWorkflow`:
+
+-   `getWorkflowContext()` --- returns `{ requestId, hasRecommendation,
+    recommendedSummary }`, read by the panel to render the current
+    detected stage.
+-   `executeReExamine()` / `executeReturnPrevious()` --- write the
+    corresponding `fp.*` keys from a precomputed payload and navigate to
+    Add Reviewer, overriding whatever the automatic detection would have
+    done.
+
+All three payloads (`recommended`, `reexamine`, `returnprevious`) are
+precomputed **once per page load**, unconditionally, before the
+priority-order stage-detection chain runs --- not per-branch. This
+keeps `getDoManagerEntry()` and the assistant/initiating-official
+lookups as single-source-of-truth helpers rather than logic duplicated
+per stage.
+
+**`content_add_reviewer.js`** exposes its own `window.FCIWorkflow`
+variant (different page, different context, same interface shape):
+
+-   `getWorkflowContext()` --- reports what's currently filled in the
+    form (`"Currently filling as: <label> --- routing to <name>"`),
+    not a fresh recommendation.
+-   `executeReExamine()` / `executeReturnPrevious()` --- call an
+    internal `switchPayload()` that re-reads the corresponding `fp.*`
+    keys and **re-fills the form in place**, even if the automatic
+    fill (via `fp.chosen = "recommended"`) has already completed. This
+    lets the officer change their mind after landing on the Add
+    Reviewer page, not just before.
+
+If `fp.chosen` / the matching `fp.route.*` keys are missing (e.g. an
+older page load before this version), `content_add_reviewer.js` falls
+back to reading the legacy `fci_noc_*` keys directly.
 
 ### Office Type Dropdown Values (`#filter_office_type`)
 
@@ -364,6 +453,16 @@ Stage priority order (first match wins):\
                                                             review required
   ---------------------------------------------------------------------------------
 
+**Floating panel display (v5.0):** MismatchClear and MismatchAmbiguous
+both set `hasRecommendation: false` / `recommendedSummary: null` ---
+they are **folded into the same "No recommendation detected" panel
+state** as a true no-match, by deliberate design decision. There is no
+distinct third panel state for "conflict detected." Row highlighting on
+the page itself (`highlightMismatch()` --- BALJIT's row in red, the
+assistant's row in orange) is unaffected and still fires; only the
+panel's text is folded. MismatchNotClear is unaffected --- it still has
+a real recommendation and displays normally.
+
 **`VIGILANCE_MISMATCH_PATTERNS`** (aligned with Stage 3E vocabulary):
 `/pending/i`, `/under\s+contemplation/i`, `/not\s+free/i`,
 `/not\s+vigilance\s+(clear|free)/i`, `/vigilance\s+case/i`,
@@ -414,6 +513,33 @@ function triggerSelect2(selectId, value) {
 }
 ```
 
+### Select2 Dropdown Matching --- Exact-Match-First (v5.0)
+
+`waitForDropdownAndSelectByText()` in `content_add_reviewer.js` matches
+in two phases to avoid substring collisions (e.g. searching for "AMIT
+KUMAR" incorrectly matching an option "AMIT KUMAR VERMA" that happens
+to appear earlier in the list than the intended "AMIT KUMAR SINGH"):
+
+``` javascript
+const targetNorm = matchValue.toString().trim().replace(/[\s\xa0]+/g, ' ').toUpperCase();
+
+// Phase 1: exact match (normalized, including NBSP)
+for (let opt of options) {
+  const optText = opt.textContent.trim().replace(/[\s\xa0]+/g, ' ').toUpperCase();
+  if (optText === targetNorm) { matchedValue = opt.value; break; }
+}
+
+// Phase 2: substring match (fallback only, for deliberately partial matchValues)
+if (matchedValue === null) {
+  for (let opt of options) { /* .includes() as before */ }
+}
+```
+
+Phase 1 handles the common case (full name / full office string passed
+as `matchValue`). Phase 2 remains as a fallback for genuinely partial
+values (e.g. an employee number that's a substring of a longer
+"12345 -- NAME" option).
+
 ### Safety Features (must be present in every version)
 
 1.  **NOE prefix guard** --- at entry point of all three scripts
@@ -424,6 +550,9 @@ function triggerSelect2(selectId, value) {
     does nothing
 5.  **Highlight before acting** --- trigger row flashes yellow before
     navigation
+6.  **Panel actions never auto-submit either** --- Re-examine / Return
+    to Previous Level only fill the form (or re-fill it in place); the
+    officer still submits manually
 
 ------------------------------------------------------------------------
 
@@ -441,6 +570,17 @@ function triggerSelect2(selectId, value) {
     occurrence.
 -   The RO CHANDIGARH Stage 3 remark has two intentional double-spaces
     ("vigilance and", "at Regional"). Do NOT correct these.
+-   **Floating Window Framework (v5.0)** --- code complete, audited
+    across several rounds, not yet exercised on a live request end to
+    end. Verify on first live occurrence: panel renders correctly on
+    both pages, Re-examine / Return to Previous Level produce the
+    correct target, and the in-place re-fill on the Add Reviewer page
+    works after the automatic fill has already run.
+-   A crash was found and fixed during audit where the Stage 3 branch
+    called a `precomputeAllPayloads()` function that no longer existed
+    in the file (leftover from an earlier refactor) --- this would have
+    silently broken the approval remark auto-fill. Confirmed fixed; no
+    other undefined-function references found on a full pass.
 
 ------------------------------------------------------------------------
 
@@ -495,6 +635,39 @@ function triggerSelect2(selectId, value) {
                                                   aligned with Stage 3E
                                                   vocabulary; `goToLastPage()`
                                                   restored in Add Reviewer
+
+  v5.0                    Aug 2026                Floating Window Framework
+                                                  migration --- `window.FCIWorkflow`
+                                                  bridge added to both `content.js`
+                                                  and `content_add_reviewer.js`;
+                                                  `fp.*` sessionStorage namespace
+                                                  added alongside legacy
+                                                  `fci_noc_*` keys (compatibility
+                                                  adapter, both written); three
+                                                  action payloads (recommended /
+                                                  reexamine / returnprevious)
+                                                  precomputed once per page load;
+                                                  `getDoManagerEntry()` extracted
+                                                  as a single standalone helper
+                                                  (previously duplicated inline in
+                                                  three places during an earlier
+                                                  draft, now centralised);
+                                                  MismatchClear / MismatchAmbiguous
+                                                  folded into the "No
+                                                  recommendation" panel state by
+                                                  design, not shown as a distinct
+                                                  third state; exact-match-first +
+                                                  NBSP-aware normalisation added to
+                                                  `waitForDropdownAndSelectByText()`
+                                                  in `content_add_reviewer.js`;
+                                                  live in-place payload re-fill
+                                                  (`switchPayload()`) added so the
+                                                  officer can override the
+                                                  recommendation after landing on
+                                                  Add Reviewer; fixed a crash where
+                                                  the Stage 3 branch called an
+                                                  undefined `precomputeAllPayloads()`
+                                                  left over from an earlier draft
   -------------------------------------------------------------------------------
 
 ------------------------------------------------------------------------
