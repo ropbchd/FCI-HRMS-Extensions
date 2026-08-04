@@ -168,51 +168,6 @@ function writeLegacyPayload(stage, data) {
   }
 }
 
-// ----------------------------------------------------------------
-
-// --- BRIDGE IMPLEMENTATION ---
-
-window.FCIWorkflow = {
-  getWorkflowContext: function() {
-    return {
-      requestId: _fciWorkflowCache.requestId,
-      hasRecommendation: _fciWorkflowCache.hasRecommendation,
-      recommendedSummary: _fciWorkflowCache.recommendedSummary
-    };
-  },
-
-  executeReExamine: function() {
-    const payload = _fciWorkflowCache.payloadReexamine;
-    if (!payload) {
-      console.warn('[FCI Workflow Assistant] Re-examine: payload not precomputed. No action taken.');
-      return;
-    }
-    sessionStorage.setItem('fp.chosen',                    'reexamine');
-    sessionStorage.setItem('fp.route.reexamine.name',      payload.name);
-    sessionStorage.setItem('fp.route.reexamine.emp',       payload.emp);
-    sessionStorage.setItem('fp.route.reexamine.office',    payload.office);
-    sessionStorage.setItem('fp.route.reexamine.officeType', payload.officeType);
-    sessionStorage.setItem('fp.remark.reexamine',          payload.remark);
-    clickAddReviewer();
-  },
-
-  executeReturnPrevious: function() {
-    const payload = _fciWorkflowCache.payloadReturnPrevious;
-    if (!payload) {
-      console.warn('[FCI Workflow Assistant] Return to Previous: payload not precomputed. No action taken.');
-      return;
-    }
-    sessionStorage.setItem('fp.chosen',                       'returnprevious');
-    sessionStorage.setItem('fp.route.returnprevious.name',    payload.name);
-    sessionStorage.setItem('fp.route.returnprevious.office',  payload.office);
-    sessionStorage.setItem('fp.route.returnprevious.officeType', payload.officeType);
-    sessionStorage.setItem('fp.remark.returnprevious',        payload.remark);
-    clickAddReviewer();
-  }};
-
-// ----------------------------------------------------------------
-
-
 
 // Helper: Check if a remark contains technical error keywords
 function hasTechnicalError(remark) {
@@ -1017,6 +972,26 @@ if (isRoChandigarh) {
   };
 }
 
+// --- PERSIST ALTERNATIVE PAYLOADS TO SESSIONSTORAGE ---
+// This ensures they survive page navigation to Add Reviewer.
+if (_fciWorkflowCache.payloadReexamine) {
+  const p = _fciWorkflowCache.payloadReexamine;
+  sessionStorage.setItem('fp.route.reexamine.name', p.name);
+  if (p.emp) sessionStorage.setItem('fp.route.reexamine.emp', p.emp);
+  sessionStorage.setItem('fp.route.reexamine.office', p.office);
+  sessionStorage.setItem('fp.route.reexamine.officeType', p.officeType);
+  sessionStorage.setItem('fp.remark.reexamine', p.remark);
+}
+
+if (_fciWorkflowCache.payloadReturnPrevious) {
+  const p = _fciWorkflowCache.payloadReturnPrevious;
+  sessionStorage.setItem('fp.route.returnprevious.name', p.name);
+  // emp is not used for returnprevious
+  sessionStorage.setItem('fp.route.returnprevious.office', p.office);
+  sessionStorage.setItem('fp.route.returnprevious.officeType', p.officeType);
+  sessionStorage.setItem('fp.remark.returnprevious', p.remark);
+}
+
 // --- LOGGING ---  
 console.log('[FCI NOC Assistant] Stage 3  (Fill Approval Remark):                  ' + (stage3  ? 'MATCH' : 'no match'));  
 console.log('[FCI NOC Assistant] Stage 3E (Fill Rejection Remark):                 ' + (stage3e ? 'MATCH' : 'no match'));  
@@ -1467,6 +1442,50 @@ addReviewerBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable
 console.warn('[FCI NOC Assistant] "Add Reviewer" button not found.');
 }
 }
+
+// ----------------------------------------------------------------
+
+// --- BRIDGE IMPLEMENTATION ---
+
+window.FCIWorkflow = {
+  getWorkflowContext: function() {
+    return {
+      requestId: _fciWorkflowCache.requestId,
+      hasRecommendation: _fciWorkflowCache.hasRecommendation,
+      recommendedSummary: _fciWorkflowCache.recommendedSummary
+    };
+  },
+
+  executeReExamine: function() {
+    const payload = _fciWorkflowCache.payloadReexamine;
+    if (!payload) {
+      console.warn('[FCI Workflow Assistant] Re-examine: payload not precomputed. No action taken.');
+      return;
+    }
+    sessionStorage.setItem('fp.chosen',                    'reexamine');
+    sessionStorage.setItem('fp.route.reexamine.name',      payload.name);
+    sessionStorage.setItem('fp.route.reexamine.emp',       payload.emp);
+    sessionStorage.setItem('fp.route.reexamine.office',    payload.office);
+    sessionStorage.setItem('fp.route.reexamine.officeType', payload.officeType);
+    sessionStorage.setItem('fp.remark.reexamine',          payload.remark);
+    clickAddReviewer();
+  },
+
+  executeReturnPrevious: function() {
+    const payload = _fciWorkflowCache.payloadReturnPrevious;
+    if (!payload) {
+      console.warn('[FCI Workflow Assistant] Return to Previous: payload not precomputed. No action taken.');
+      return;
+    }
+    sessionStorage.setItem('fp.chosen',                       'returnprevious');
+    sessionStorage.setItem('fp.route.returnprevious.name',    payload.name);
+    sessionStorage.setItem('fp.route.returnprevious.office',  payload.office);
+    sessionStorage.setItem('fp.route.returnprevious.officeType', payload.officeType);
+    sessionStorage.setItem('fp.remark.returnprevious',        payload.remark);
+    clickAddReviewer();
+  }};
+
+// ----------------------------------------------------------------
 
 // --- START ---
 

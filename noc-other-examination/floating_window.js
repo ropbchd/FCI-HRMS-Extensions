@@ -67,7 +67,9 @@
           panel.style.top = pos.top + 'px';
           panel.style.right = 'auto';
         }
-      } catch (e) { /* ignore */ }
+      } catch (e) {
+        // ignore
+      }
     }
 
     return panel;
@@ -131,7 +133,7 @@
 
     // Bridge guard
     if (!window.FCIWorkflow || typeof window.FCIWorkflow.getWorkflowContext !== 'function') {
-      console.warn('[Floating Window] getWorkflowContext() not found — this page's bridge script hasn't implemented the floating window bridge yet.');
+      console.warn('[Floating Window] getWorkflowContext() not found — this page\'s bridge script hasn\'t implemented the floating window bridge yet.');
       setRecommendedText('Bridge not available — check console.', false);
       return;
     }
@@ -187,8 +189,7 @@
 
   window.FloatingWindow = {
     render: function() {
-      init();
-      render();
+      init(); // init already calls render, so we just need to ensure panel exists
     }
   };
 
