@@ -347,32 +347,46 @@ function formatDate(date) {
 
 // --- NOTIFICATION PANEL (visual only, non-blocking) ---
 
-function showDateNotification(hrmsDate, formDate, dayDiff) {
+function showDateNotification(hrmsDate, formDate, dayDiff, type) {
   const existing = document.getElementById('fci-noc-date-notification');
   if (existing) existing.remove();
 
-  const isSevere = dayDiff > 7;
+  const isMismatch = type === 'mismatch';
+  const isSevere = isMismatch && dayDiff > 7;
+
   const panel = document.createElement('div');
   panel.id = 'fci-noc-date-notification';
   panel.style.cssText = 'position:fixed;top:20px;right:20px;z-index:99999;width:380px;padding:18px 20px;border-radius:10px;font-family:Arial,sans-serif;font-size:13px;line-height:1.5;box-shadow:0 6px 24px rgba(0,0,0,0.25);transition:opacity 0.3s ease;';
 
-  if (isSevere) {
-    panel.style.backgroundColor = '#fff0f0';
-    panel.style.border = '2px solid #dc3545';
-    panel.style.color = '#721c24';
+  if (isMismatch) {
+    if (isSevere) {
+      panel.style.backgroundColor = '#fff0f0';
+      panel.style.border = '2px solid #dc3545';
+      panel.style.color = '#721c24';
+    } else {
+      panel.style.backgroundColor = '#fff8e6';
+      panel.style.border = '2px solid #ffc107';
+      panel.style.color = '#856404';
+    }
   } else {
-    panel.style.backgroundColor = '#fff8e6';
-    panel.style.border = '2px solid #ffc107';
-    panel.style.color = '#856404';
+    panel.style.backgroundColor = '#e8f5e9';
+    panel.style.border = '2px solid #28a745';
+    panel.style.color = '#155724';
   }
 
-  const title = isSevere
-    ? '⚠️ Date Mismatch — Exceeds 7-Day Window'
-    : 'ℹ️ Date Mismatch — Within 7-Day Window';
+  const title = isMismatch
+    ? (isSevere ? '⚠️ Date Mismatch — Exceeds 7-Day Window' : 'ℹ️ Date Mismatch — Within 7-Day Window')
+    : '✓ Date Compliance Confirmed';
 
-  const message = isSevere
-    ? 'HRMS initiation is <b>' + dayDiff + ' days</b> after the form filling date. This exceeds the permissible window under the circular.'
-    : 'HRMS initiation is <b>' + dayDiff + ' day(s)</b> after the form filling date. Within the 7-day window.';
+  let message;
+  if (isMismatch) {
+    message = isSevere
+      ? 'HRMS initiation is <b>' + dayDiff + ' days</b> after the form filling date. This exceeds the permissible window under the circular.'
+      : 'HRMS initiation is <b>' + dayDiff + ' day(s)</b> after the form filling date. Within the 7-day window.';
+  } else {
+    const dayDiffText = dayDiff === 0 ? 'the same day as' : dayDiff + ' day(s) prior to';
+    message = 'HRMS initiation date is <b>' + dayDiffText + '</b> the form filling date. The request is in accordance with the issued guidelines / advisory.';
+  }
 
   panel.innerHTML =
     '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">' +
@@ -383,7 +397,7 @@ function showDateNotification(hrmsDate, formDate, dayDiff) {
     '<div style="background:rgba(255,255,255,0.6);padding:10px 12px;border-radius:6px;font-size:12px;margin-bottom:10px;">' +
       '<div><b>Form Filled:</b> ' + formatDate(formDate) + '</div>' +
       '<div><b>HRMS Initiated:</b> ' + formatDate(hrmsDate) + '</div>' +
-      '<div><b>Difference:</b> ' + dayDiff + ' day(s)</div>' +
+      '<div><b>Gap:</b> ' + dayDiff + ' day(s)</div>' +
     '</div>' +
     '<div style="font-size:11px;opacity:0.85;border-top:1px solid rgba(0,0,0,0.1);padding-top:8px;">' +
       'This is a non-blocking notification. The extension will continue filling the approval remark as per normal workflow.' +
@@ -396,7 +410,6 @@ function showDateNotification(hrmsDate, formDate, dayDiff) {
     setTimeout(function() { panel.remove(); }, 300);
   });
 
-  // Auto-dismiss after 30 seconds
   setTimeout(function() {
     if (document.getElementById('fci-noc-date-notification')) {
       panel.style.opacity = '0';
@@ -1042,13 +1055,15 @@ if (stage3e) {
   const hrmsDate = getHrmsInitiationDate(entries);
   const formDate = extractFormFillingDate(lastAssistantReviewed ? lastAssistantReviewed.remark : '');
   if (hrmsDate && formDate) {
+    const oneDay = 24 * 60 * 60 * 1000;
     if (hrmsDate > formDate) {
-      const oneDay = 24 * 60 * 60 * 1000;
       const dayDiff = Math.round((hrmsDate - formDate) / oneDay);
-      showDateNotification(hrmsDate, formDate, dayDiff);
+      showDateNotification(hrmsDate, formDate, dayDiff, 'mismatch');
       console.warn('[FCI NOC Assistant] ⚠️ DATE MISMATCH: HRMS (' + formatDate(hrmsDate) + ') is ' + dayDiff + ' day(s) AFTER form date (' + formatDate(formDate) + '). Notification shown. Proceeding with approval remark.');
     } else {
-      console.log('[FCI NOC Assistant] Date check passed: HRMS date (' + formatDate(hrmsDate) + ') <= Form date (' + formatDate(formDate) + ').');
+      const dayDiff = Math.round((formDate - hrmsDate) / oneDay);
+      showDateNotification(hrmsDate, formDate, dayDiff, 'compliant');
+      console.log('[FCI NOC Assistant] Date check confirmed: HRMS date (' + formatDate(hrmsDate) + ') is on or before Form date (' + formatDate(formDate) + '). Notification shown. Proceeding with approval remark.');
     }
   } else {
     console.log('[FCI NOC Assistant] Date check skipped: Could not extract HRMS date or form date from remark.');
