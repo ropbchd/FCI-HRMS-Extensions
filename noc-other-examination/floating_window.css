@@ -1,5 +1,6 @@
-/* FCI Workflow Assistant — Floating Window Framework v3 */
-/* Shared across all workflow extensions. Workflow-agnostic. */
+/* FCI Workflow Assistant — Floating Window Framework
+   Shared UI Framework (Passport Theme)
+   Compatible with Other Exam JS */
 
 #fci-workflow-panel {
   position: fixed;
@@ -11,159 +12,176 @@
   background: #ffffff;
   border: 1px solid #d0d0d0;
   border-radius: 10px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 16px rgba(0,0,0,.15);
   font-family: Arial, sans-serif;
   font-size: 13px;
-  line-height: 1.5;
   color: #333;
-  z-index: 99999;
-  padding: 0;
-  transition: border-color 0.8s ease, box-shadow 0.8s ease;
+  z-index: 2147483647;
+  padding: 12px 14px;
+  box-sizing: border-box;
+  transition: border-color .3s ease, box-shadow .3s ease;
 }
 
-#fci-workflow-panel.fci-panel-loading {
-  border-color: #1D9E75;
-  box-shadow: 0 8px 32px rgba(29, 158, 117, 0.25);
+#fci-workflow-panel *{
+  box-sizing:border-box;
 }
 
-#fci-workflow-panel .fci-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 14px 16px 10px 16px;
-  border-bottom: 1px solid #eee;
-  cursor: move;
-  user-select: none;
+#fci-workflow-panel.fci-panel-loading{
+  border-color:#1D9E75;
+  box-shadow:0 8px 32px rgba(29,158,117,.25);
 }
 
-#fci-workflow-panel .fci-panel-title {
-  font-size: 14px;
-  font-weight: bold;
-  color: #333;
-  margin: 0;
+
+/* ---------------- Header ---------------- */
+
+#fci-workflow-panel .fci-panel-header{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin:-12px -14px 10px -14px;
+  padding:10px 14px;
+  background:#029456;
+  border-top-left-radius:9px;
+  border-top-right-radius:9px;
+  cursor:move;
+  user-select:none;
 }
 
-#fci-workflow-panel .fci-panel-drag {
-  font-size: 18px;
-  color: #aaa;
-  line-height: 1;
-  cursor: move;
+#fci-workflow-panel .fci-panel-title{
+  margin:0;
+  font-size:13px;
+  font-weight:bold;
+  color:#fff;
 }
 
-#fci-workflow-panel .fci-panel-body {
-  padding: 14px 16px;
+#fci-workflow-panel .fci-panel-drag{
+  color:#fff;
+  font-size:18px;
+  line-height:1;
 }
 
-#fci-workflow-panel .fci-info-block {
-  background: #f7f9fc;
-  border-left: 3px solid #1D9E75;
-  padding: 10px 12px;
-  margin-bottom: 14px;
-  border-radius: 0 6px 6px 0;
+
+/* ---------------- Body ---------------- */
+
+#fci-workflow-panel .fci-panel-body{
+  padding:0;
 }
 
-#fci-workflow-panel .fci-info-primary {
-  font-size: 12px;
-  font-weight: bold;
-  color: #333;
-  margin-bottom: 3px;
+
+/* ---------------- Info Block ---------------- */
+
+#fci-workflow-panel .fci-info-block{
+  background:#f7f9fc;
+  border-left:3px solid #1D9E75;
+  padding:6px 8px;
+  margin-bottom:10px;
 }
 
-#fci-workflow-panel .fci-info-secondary {
-  font-size: 11px;
-  color: #666;
+#fci-workflow-panel .fci-info-primary{
+  font-size:12px;
+  color:#333;
+  font-weight:normal;
 }
 
-#fci-workflow-panel .fci-section-label {
-  font-size: 11px;
-  font-weight: bold;
-  color: #888;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 6px;
+#fci-workflow-panel .fci-info-secondary{
+  font-size:11px;
+  color:#666;
+  margin-top:2px;
 }
 
-#fci-workflow-panel .fci-recommended {
-  background: #f0f7f4;
-  border: 1px solid #c8e6d8;
-  border-radius: 6px;
-  padding: 10px 12px;
-  margin-bottom: 14px;
-  font-size: 12px;
-  color: #1a5c44;
+
+/* ---------------- Labels ---------------- */
+
+#fci-workflow-panel .fci-section-label{
+  font-size:11px;
+  font-weight:bold;
+  color:#888;
+  text-transform:uppercase;
+  letter-spacing:.03em;
+  margin:10px 0 4px;
 }
 
-#fci-workflow-panel .fci-recommended-muted {
-  background: #f7f7f7;
-  border: 1px solid #e0e0e0;
-  border-radius: 6px;
-  padding: 10px 12px;
-  margin-bottom: 14px;
-  font-size: 12px;
-  color: #888;
-  font-style: italic;
+
+/* ---------------- Recommendation ---------------- */
+
+#fci-workflow-panel .fci-recommended,
+#fci-workflow-panel .fci-recommended-muted{
+  background:none;
+  border:none;
+  padding:0;
+  margin-bottom:10px;
+  font-size:12px;
+  line-height:1.4;
+  font-style:normal;
 }
 
-#fci-workflow-panel .fci-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 14px;
+#fci-workflow-panel .fci-recommended{
+  color:#333;
 }
 
-#fci-workflow-panel .fci-btn {
-  display: block;
-  width: 100%;
-  padding: 10px 12px;
-  font-size: 12px;
-  font-weight: bold;
-  border: 2px solid;
-  border-radius: 6px;
-  cursor: pointer;
-  text-align: center;
-  transition: all 0.2s ease;
-  font-family: Arial, sans-serif;
+#fci-workflow-panel .fci-recommended-muted{
+  color:#888;
 }
 
-#fci-workflow-panel .fci-btn-reexamine {
-  background: #f7f7f7;
-  border-color: #D85A30;
-  color: #993C1D;
+
+/* ---------------- Buttons ---------------- */
+
+#fci-workflow-panel .fci-actions{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
 }
 
-#fci-workflow-panel .fci-btn-reexamine:hover {
-  background: #FAECE7;
-  border-color: #993C1D;
+#fci-workflow-panel .fci-btn{
+  width:100%;
+  padding:8px 10px;
+  border-radius:6px;
+  border:1px solid;
+  font-size:12px;
+  font-weight:600;
+  font-family:Arial,sans-serif;
+  cursor:pointer;
+  text-align:center;
+  transition:filter .15s ease, transform .1s ease;
 }
 
-#fci-workflow-panel .fci-btn-return {
-  background: #f7f7f7;
-  border-color: #1D9E75;
-  color: #0F6E56;
+
+/* Re-examine */
+
+#fci-workflow-panel .fci-btn-reexamine{
+  background:#FFDBBB;
+  border-color:#E2B792;
+  color:#4A2B0F;
 }
 
-#fci-workflow-panel .fci-btn-return:hover {
-  background: #E1F5EE;
-  border-color: #0F6E56;
+#fci-workflow-panel .fci-btn-reexamine:hover{
+  filter:brightness(.93);
 }
 
-#fci-workflow-panel .fci-status {
-  font-size: 12px;
-  color: #888;
-  border-top: 1px solid #eee;
-  padding-top: 10px;
-  margin-top: 4px;
+
+/* Return to Previous */
+
+#fci-workflow-panel .fci-btn-return{
+  background:#997E67;
+  border-color:#7D6550;
+  color:#fff;
 }
 
-#fci-workflow-panel .fci-status-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #1D9E75;
-  margin-right: 6px;
+#fci-workflow-panel .fci-btn-return:hover{
+  filter:brightness(.90);
 }
 
-#fci-workflow-panel .fci-status-dot.inactive {
-  background: #ccc;
+
+/* ---------------- Status ---------------- */
+
+#fci-workflow-panel .fci-status{
+  margin-top:10px;
+  font-size:12px;
+  color:#888;
+  border:none;
+  padding-top:0;
+}
+
+#fci-workflow-panel .fci-status-dot{
+  display:none;
 }
