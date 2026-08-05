@@ -1,7 +1,7 @@
 // FCI NOC Assistant - Content Script
 // Runs on every NOC review page.
 // Checks action history and routes to the correct next step.
-// v4.5 — Explicit sessionStorage routing for all stages (content.js as single source of truth)
+// v4.8 — Optimized draggable notification panel with refined visual theme.
 
 (function () {
 
@@ -345,8 +345,46 @@ function formatDate(date) {
   return day + '.' + month + '.' + year;
 }
 
-// --- NOTIFICATION PANEL (visual only, non-blocking) ---
+// --- DRAGGABLE HELPER FUNCTION ---
+/**
+ * Enables dragging functionality for an element when a specific handle is clicked.
+ * Reuses the principles defined in the shared floating window JS framework.
+ * 
+ * @param {HTMLElement} element The entire panel to be moved.
+ * @param {HTMLElement} handle The specific part of the panel (e.g., header) used for dragging.
+ */
+function makeDraggable(element, handle) {
+  let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+  handle.onmousedown = dragMouseDown;
 
+  function dragMouseDown(e) {
+    e = e || window.event;
+    e.preventDefault();
+    pos3 = e.clientX;
+    pos4 = e.clientY;
+    document.onmouseup = closeDragElement;
+    document.onmousemove = elementDrag;
+  }
+
+  function elementDrag(e) {
+    e = e || window.event;
+    e.preventDefault();
+    pos1 = pos3 - e.clientX;
+    pos2 = pos4 - e.clientY;
+    pos3 = e.clientX;
+    pos4 = e.clientY;
+    element.style.top = (element.offsetTop - pos2) + "px";
+    element.style.left = (element.offsetLeft - pos1) + "px";
+    element.style.right = "auto"; // Unlock right positioning once moved
+  }
+
+  function closeDragElement() {
+    document.onmouseup = null;
+    document.onmousemove = null;
+  }
+}
+
+// --- NOTIFICATION PANEL (draggable, non-blocking) ---
 function showDateNotification(hrmsDate, formDate, dayDiff, type) {
   const existing = document.getElementById('fci-noc-date-notification');
   if (existing) existing.remove();
@@ -354,62 +392,76 @@ function showDateNotification(hrmsDate, formDate, dayDiff, type) {
   const isMismatch = type === 'mismatch';
   const isSevere = isMismatch && dayDiff > 7;
 
+  // Optimised visual theme (FCI green, amber accent)
+  const headerBg    = '#029456'; // FCI Passport Green
+  const titleColor  = '#FFFFFF';
+  const accentColor = '#D97706'; // Golden Amber
+  const pillBg      = '#ECFDF5';
+  const pillBorder  = '#A7F3D0';
+  const textColor   = '#064E3B';
+
   const panel = document.createElement('div');
   panel.id = 'fci-noc-date-notification';
-  panel.style.cssText = 'position:fixed;top:20px;right:20px;z-index:99999;width:380px;padding:18px 20px;border-radius:10px;font-family:Arial,sans-serif;font-size:13px;line-height:1.5;box-shadow:0 6px 24px rgba(0,0,0,0.25);transition:opacity 0.3s ease;';
-
-  if (isMismatch) {
-    if (isSevere) {
-      panel.style.backgroundColor = '#fff0f0';
-      panel.style.border = '2px solid #dc3545';
-      panel.style.color = '#721c24';
-    } else {
-      panel.style.backgroundColor = '#fff8e6';
-      panel.style.border = '2px solid #ffc107';
-      panel.style.color = '#856404';
-    }
-  } else {
-    panel.style.backgroundColor = '#e8f5e9';
-    panel.style.border = '2px solid #28a745';
-    panel.style.color = '#155724';
-  }
+  
+  // Base draggable panel styles – fixed position
+  panel.style.cssText = 
+    'position:fixed;top:80px;right:20px;z-index:2147483647;width:340px;' +
+    'background:#ffffff;border-radius:10px;font-family:Arial,sans-serif;' +
+    'font-size:13px;line-height:1.5;box-shadow:0 8px 32px rgba(0,0,0,0.2);' +
+    'overflow:hidden;box-sizing:border-box;transition:opacity 0.3s ease;' +
+    'border-left:5px solid ' + accentColor + ';' +
+    'border-top:1px solid #d0d0d0;border-right:1px solid #d0d0d0;border-bottom:1px solid #d0d0d0;';
 
   const title = isMismatch
-    ? (isSevere ? '⚠️ Date Mismatch — Exceeds 7-Day Window' : 'ℹ️ Date Mismatch — Within 7-Day Window')
+    ? (isSevere ? '⚠️ Mismatch — Exceeds 7 Days' : 'ℹ️ Mismatch — Within 7-Day Window')
     : '✓ Date Compliance Confirmed';
 
   let message;
   if (isMismatch) {
     message = isSevere
-      ? 'HRMS initiation is <b>' + dayDiff + ' days</b> after the form filling date. This exceeds the permissible window under the circular.'
-      : 'HRMS initiation is <b>' + dayDiff + ' day(s)</b> after the form filling date. Within the 7-day window.';
+      ? 'HRMS initiation is <b>' + dayDiff + ' days</b> after form filling. This exceeds the permissible limit.'
+      : 'HRMS initiation is <b>' + dayDiff + ' day(s)</b> after form filling. Within 7‑day window.';
   } else {
     const dayDiffText = dayDiff === 0 ? 'the same day as' : dayDiff + ' day(s) prior to';
-    message = 'HRMS initiation date is <b>' + dayDiffText + '</b> the form filling date. The request is in accordance with the issued guidelines / advisory.';
+    message = 'HRMS initiation is <b>' + dayDiffText + '</b> the form filling date. Request is compliant.';
   }
 
+  // HTML construction with dynamic dates
   panel.innerHTML =
-    '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">' +
-      '<strong style="font-size:14px;">' + title + '</strong>' +
-      '<button id="fci-noc-close-notif" style="background:none;border:none;font-size:18px;cursor:pointer;line-height:1;padding:0 0 0 10px;color:inherit;opacity:0.6;">&times;</button>' +
+    '<div id="fci-noc-drag-header" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:' + headerBg + ';cursor:move;user-select:none;">' +
+      '<strong style="font-size:13px;color:' + titleColor + ';margin:0;">' +
+        '<span style="color:' + accentColor + ';margin-right:6px;font-size:14px;font-style:normal;">✓</span>' + title +
+      '</strong>' +
+      '<div style="display:flex;align-items:center;gap:10px;">' +
+        '<span style="color:rgba(255,255,255,0.7);font-size:14px;cursor:move;" title="Drag panel">⋮⋮</span>' +
+        '<button id="fci-noc-close-notif" style="background:none;border:none;font-size:18px;cursor:pointer;line-height:1;color:' + titleColor + ';opacity:0.8;padding:0;">&times;</button>' +
+      '</div>' +
     '</div>' +
-    '<div style="margin-bottom:10px;">' + message + '</div>' +
-    '<div style="background:rgba(255,255,255,0.6);padding:10px 12px;border-radius:6px;font-size:12px;margin-bottom:10px;">' +
-      '<div><b>Form Filled:</b> ' + formatDate(formDate) + '</div>' +
-      '<div><b>HRMS Initiated:</b> ' + formatDate(hrmsDate) + '</div>' +
-      '<div><b>Gap:</b> ' + dayDiff + ' day(s)</div>' +
-    '</div>' +
-    '<div style="font-size:11px;opacity:0.85;border-top:1px solid rgba(0,0,0,0.1);padding-top:8px;">' +
-      'This is a non-blocking notification. The extension will continue filling the approval remark as per normal workflow.' +
+    '<div style="padding:14px;">' +
+      '<div style="margin-bottom:12px;color:#333333;font-size:12.5px;">' + message + '</div>' +
+      '<div style="background:' + pillBg + ';border:1px solid ' + pillBorder + ';padding:10px 12px;border-radius:6px;font-size:12px;margin-bottom:10px;color:' + textColor + ';">' +
+        '<div><b>HRMS Initiated:</b> ' + formatDate(hrmsDate) + '</div>' +
+        '<div><b>Form Filled:</b> ' + formatDate(formDate) + '</div>' +
+        '<div><b>Gap:</b> ' + dayDiff + ' day(s)</div>' +
+      '</div>' +
+      '<div style="font-size:11px;color:#888888;border-top:1px solid #f0f0f0;padding-top:8px;">' +
+        'Non‑blocking notice. Extension will proceed with workflow.' +
+      '</div>' +
     '</div>';
 
   document.body.appendChild(panel);
 
+  // Enable dragging on the header
+  const dragHeader = document.getElementById('fci-noc-drag-header');
+  makeDraggable(panel, dragHeader);
+
+  // Close button
   document.getElementById('fci-noc-close-notif').addEventListener('click', function() {
     panel.style.opacity = '0';
     setTimeout(function() { panel.remove(); }, 300);
   });
 
+  // Auto‑dismiss after 30 seconds
   setTimeout(function() {
     if (document.getElementById('fci-noc-date-notification')) {
       panel.style.opacity = '0';
