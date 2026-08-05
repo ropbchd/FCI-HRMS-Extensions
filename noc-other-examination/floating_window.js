@@ -8,6 +8,27 @@
   const PANEL_ID = 'fci-workflow-panel';
   const STORAGE_KEY = 'fci_workflow_panel_position';
 
+  // --- Helpers ---
+
+  function clampPanelPosition(panel, left, top) {
+    const rect = panel.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const visibleX = 60;   // keep 60px visible horizontally
+    const visibleY = 35;   // keep header visible vertically
+
+    const clampedLeft = Math.max(
+      -(rect.width - visibleX),
+      Math.min(left, vw - visibleX)
+    );
+    const clampedTop = Math.max(
+      0,
+      Math.min(top, vh - visibleY)
+    );
+
+    return { left: clampedLeft, top: clampedTop };
+  }
+
   // --- Panel Lifecycle ---
 
   function init() {
@@ -15,6 +36,9 @@
 
     const panel = createPanel();
     document.body.appendChild(panel);
+
+    // Restore saved position (with clamping)
+    restorePanelPosition(panel);
 
     // Loading animation
     panel.classList.add('fci-panel-loading');
@@ -57,22 +81,25 @@
         '</div>' +
       '</div>';
 
-    // Restore position
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const pos = JSON.parse(saved);
-        if (pos.left != null && pos.top != null) {
-          panel.style.left = pos.left + 'px';
-          panel.style.top = pos.top + 'px';
-          panel.style.right = 'auto';
-        }
-      } catch (e) {
-        // ignore
-      }
-    }
-
+    // Do NOT restore position here – we do it in init() after the panel is in the DOM
     return panel;
+  }
+
+  function restorePanelPosition(panel) {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return;
+
+    try {
+      const pos = JSON.parse(saved);
+      if (pos.left == null || pos.top == null) return;
+
+      const { left, top } = clampPanelPosition(panel, pos.left, pos.top);
+      panel.style.left = left + 'px';
+      panel.style.top = top + 'px';
+      panel.style.right = 'auto';
+    } catch (e) {
+      // ignore
+    }
   }
 
   // --- Drag Support ---
@@ -95,18 +122,17 @@
 
     document.addEventListener('mousemove', function(e) {
       if (!isDragging) return;
+
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
       let newLeft = startLeft + dx;
       let newTop = startTop + dy;
 
-      // Viewport clamping
-      const rect = panel.getBoundingClientRect();
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const pad = 8;
-      newLeft = Math.max(pad, Math.min(newLeft, vw - rect.width - pad));
-      newTop = Math.max(pad, Math.min(newTop, vh - rect.height - pad));
+      // --- Allow partial off‑screen (keep 60px horizontally, 35px vertically) ---
+      const { left, top } = clampPanelPosition(panel, newLeft, newTop);
+      newLeft = left;
+      newTop = top;
+      // ----------------------------------------------------------------------
 
       panel.style.left = newLeft + 'px';
       panel.style.top = newTop + 'px';
@@ -189,7 +215,14 @@
 
   window.FloatingWindow = {
     render: function() {
-      init(); // init already calls render, so we just need to ensure panel exists
+      // If panel already exists, just refresh the content;
+      // otherwise, inject and render.
+      const panel = document.getElementById(PANEL_ID);
+      if (panel) {
+        render();
+      } else {
+        init();
+      }
     }
   };
 
