@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "FCI CALP Assistant",
+  "version": "1.0",
+  "description": "Automates Competency And Learning Profile request processing on FCI HRMS portal",
+  "permissions": ["activeTab", "scripting", "tabs"],
+  "host_permissions": [
+    "https://www.hrmsfci.in/*",
+    "https://hrmsfci.in/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.hrmsfci.in/corehr/learning-competancy",
+        "https://hrmsfci.in/corehr/learning-competancy"
+      ],
+      "js": ["content_list.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.hrmsfci.in/workflow/approve/*",
+        "https://hrmsfci.in/workflow/approve/*"
+      ],
+      "js": ["content_approve.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.hrmsfci.in/workflow/add-reviewer/*",
+        "https://hrmsfci.in/workflow/add-reviewer/*"
+      ],
+      "js": ["content_add_reviewer.js"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    }
+  ]
+}
