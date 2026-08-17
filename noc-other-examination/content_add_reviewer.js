@@ -192,7 +192,7 @@
       return false;
     }
 
-    editor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Fill without scrolling - keep view at last remark
     editor.innerText = remark;
     if (comments) comments.value = remark;
     editor.dispatchEvent(new Event('input', { bubbles: true }));
@@ -316,49 +316,167 @@
     }
   };
 
-  // --- NAVIGATE TO LAST PAGE OF ACTION HISTORY ---
-  function goToLastPage(callback) {
+  // --- SET ENTRIES PER PAGE TO 100 AND SCROLL TO REASON BOX ---
+  function setEntriesPerPageAndScroll(callback) {
     let attempts = 0;
-    const interval = setInterval(function () {
+    const maxAttempts = 30;
+    
+    function trySetEntries() {
       attempts++;
-      const paginateDivs = document.querySelectorAll('[id$="_paginate"], .dataTables_paginate, .pagination');
-      let paginateDiv = null;
-      for (let div of paginateDivs) {
-        if (div.querySelectorAll('a, span').length > 0) { paginateDiv = div; break; }
+      
+      // Common DataTables length selector patterns
+      const lengthSelectors = [
+        '[id$="_length"] select',           // DataTables default: table_id_length select
+        '.dataTables_length select',        // DataTables with class
+        'select[name*="length"]',           // Any select with "length" in name
+        'select[id*="length"]',             // Any select with "length" in id
+        '.length_menu select',              // Alternative class
+        '#filter_length select',            // Specific to this app (filter_)
+        'select.form-control[data-table-length]', // Custom attribute
+      ];
+      
+      let lengthSelect = null;
+      for (let selector of lengthSelectors) {
+        const found = document.querySelector(selector);
+        if (found) {
+          lengthSelect = found;
+          console.log('[FCI NOC Assistant] Add Reviewer: Found length selector: ' + selector);
+          break;
+        }
       }
-      if (!paginateDiv) {
-        if (attempts >= 20) { clearInterval(interval); callback(); }
+      
+      // Fallback: find any select near "Show" or "Entries" text
+      if (!lengthSelect) {
+        const allSelects = document.querySelectorAll('select');
+        for (let sel of allSelects) {
+          const parentText = (sel.parentElement?.textContent || '').toLowerCase();
+          const prevText = (sel.previousElementSibling?.textContent || '').toLowerCase();
+          if (parentText.includes('show') || parentText.includes('entries') || 
+              prevText.includes('show') || prevText.includes('entries') ||
+              sel.id.toLowerCase().includes('length')) {
+            lengthSelect = sel;
+            console.log('[FCI NOC Assistant] Add Reviewer: Found length select via text search');
+            break;
+          }
+        }
+      }
+      
+      if (!lengthSelect) {
+        if (attempts >= maxAttempts) {
+          console.warn('[FCI NOC Assistant] Add Reviewer: Length select not found after ' + maxAttempts + ' attempts. Proceeding without changing entries per page.');
+          scrollToReasonBox(callback);
+          return;
+        }
+        setTimeout(trySetEntries, 500);
         return;
       }
-      const pageLinks = paginateDiv.querySelectorAll('a, span');
-      let highestNum = 0;
-      let highestLink = null;
-      for (let link of pageLinks) {
-        const text = link.textContent.trim();
-        const num = parseInt(text);
-        if (!isNaN(num) && text === String(num) && num > highestNum) {
-          highestNum = num; highestLink = link;
+      
+      // Check if already set to 100
+      if (lengthSelect.value === '100' || lengthSelect.value === '-1') {
+        console.log('[FCI NOC Assistant] Add Reviewer: Entries per page already set to 100/all.');
+        scrollToReasonBox(callback);
+        return;
+      }
+      
+      // Try to find and select option with value "100" or text "100"
+      let option100 = null;
+      for (let opt of lengthSelect.options) {
+        if (opt.value === '100' || opt.value === '-1' || 
+            opt.textContent.trim() === '100' || opt.textContent.trim() === 'All') {
+          option100 = opt;
+          break;
         }
       }
-      if (highestLink && highestNum > 1) {
-        clearInterval(interval);
-        if (!highestLink.classList.contains('current') && !highestLink.classList.contains('active')) {
-          console.log('[FCI NOC Assistant] Add Reviewer: Navigating to last page (' + highestNum + ')...');
-          highestLink.click();
+      
+      if (!option100) {
+        console.warn('[FCI NOC Assistant] Add Reviewer: Option "100" not found in dropdown. Available options:');
+        for (let opt of lengthSelect.options) {
+          console.warn('  - value="' + opt.value + '" text="' + opt.textContent.trim() + '"');
+        }
+        scrollToReasonBox(callback);
+        return;
+      }
+      
+      // Select the 100 option
+      const targetValue = option100.value;
+      console.log('[FCI NOC Assistant] Add Reviewer: Setting entries per page to 100 (value: ' + targetValue + ')');
+      
+      // Handle both standard select and Select2
+      if (window.jQuery && window.jQuery.fn.select2 && window.jQuery(lengthSelect).hasClass('select2-hidden-accessible')) {
+        // Select2 enhanced dropdown
+        window.jQuery(lengthSelect).val(targetValue).trigger('change');
+        window.jQuery(lengthSelect).trigger({ 
+          type: 'select2:select', 
+          params: { data: { id: targetValue } } 
+        });
+      } else {
+        // Standard select
+        lengthSelect.value = targetValue;
+        lengthSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        lengthSelect.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      
+      // Wait briefly for table to re-render, then scroll to last comment
+      setTimeout(function() {
+        scrollToLastComment(callback);
+      }, 1000);
+    }
+    
+    trySetEntries();
+  }
+  
+  // Scroll to the last available comment (REMARKS row) in the Action History table
+  function scrollToLastComment(callback) {
+    // Try to find the action history table
+    const table = document.querySelector('#custom-action-history-tbl') || 
+                  document.querySelector('table[id*="action-history"]') ||
+                  document.querySelector('table.dataTable');
+    
+    if (table) {
+      const tbody = table.querySelector('tbody');
+      if (tbody) {
+        // Find all rows that contain REMARKS (single cell rows with "REMARKS:" text)
+        const allRows = tbody.querySelectorAll('tr');
+        let lastRemarkRow = null;
+        
+        for (let row of allRows) {
+          const cells = row.querySelectorAll('td');
+          // Remark rows typically have 1 cell with "REMARKS:" text
+          if (cells.length === 1) {
+            const text = cells[0].textContent.trim();
+            if (text.toUpperCase().startsWith('REMARKS:')) {
+              lastRemarkRow = row;
+            }
+          }
+        }
+        
+        if (lastRemarkRow) {
+          console.log('[FCI NOC Assistant] Add Reviewer: Scrolling to last comment (REMARKS row)...');
+          lastRemarkRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          setTimeout(callback, 500);
+          return;
         } else {
-          console.log('[FCI NOC Assistant] Add Reviewer: Already on last page (' + highestNum + ').');
+          console.log('[FCI NOC Assistant] Add Reviewer: No REMARKS rows found, scrolling to table bottom...');
+          // Fallback: scroll to bottom of table
+          const lastRow = tbody.querySelector('tr:last-child');
+          if (lastRow) {
+            lastRow.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            setTimeout(callback, 500);
+            return;
+          }
         }
-        setTimeout(callback, 1000);
-      } else if (highestNum <= 1) {
-        clearInterval(interval);
-        console.log('[FCI NOC Assistant] Add Reviewer: Single page — no navigation needed.');
-        callback();
-      } else if (attempts >= 20) {
-        clearInterval(interval);
-        console.warn('[FCI NOC Assistant] Add Reviewer: Could not find last page link.');
-        callback();
       }
-    }, 500);
+    }
+    
+    // Ultimate fallback: scroll to Reason box
+    console.warn('[FCI NOC Assistant] Add Reviewer: Action history table not found, falling back to Reason box...');
+    const editor = document.getElementById('editor');
+    if (editor) {
+      editor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(callback, 500);
+    } else {
+      callback();
+    }
   }
 
   // --- WAIT FOR JQUERY & SELECT2 ---
@@ -396,7 +514,7 @@
   function startup() {
     waitForJQuery(function() {
       setTimeout(function() {
-        goToLastPage(function() {
+        setEntriesPerPageAndScroll(function() {
           setTimeout(function() {
             fillForm(payload, function() {
               // Render floating panel after form is filled
