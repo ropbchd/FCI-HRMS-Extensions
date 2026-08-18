@@ -152,12 +152,13 @@
 
   /**
    * Verify all selectors in a pattern still resolve to exactly one element each
-   * @returns {Object} { valid: boolean, failures: Array, warnings: Array, confirmRequired: boolean }
+   * @returns {Object} { valid: boolean, failures: Array, warnings: Array, confirmRequired: boolean, actionTies: Array }
    */
   function validatePattern(pattern) {
     const failures = [];
     const warnings = [];
-    let confirmRequired = false;
+    let generalConfirmRequired = false;
+    const actionTies = [];
 
     for (const [selectorName, selectorDef] of Object.entries(pattern.selectors || {})) {
       const result = matchSelector(selectorDef);
@@ -172,9 +173,13 @@
         // Check if this selector feeds an action
         const isActionSelector = pattern.actions?.some(a => a.selector === selectorName);
         if (isActionSelector) {
-          // Action-selector tie: route to confirmRequired instead of failures
-          // so executePattern can surface the confirm prompt
-          confirmRequired = true;
+          // Action-selector tie: collect for confirm prompt
+          actionTies.push({
+            selector: selectorName,
+            matchedStrategy: result.matchedStrategy,
+            reason: 'Tie on action selector — multiple elements matched'
+          });
+          generalConfirmRequired = true;
         } else {
           warnings.push({
             selector: selectorName,
@@ -189,7 +194,10 @@
       valid: failures.length === 0,
       failures,
       warnings,
-      confirmRequired
+      // generalConfirmRequired: set if ANY general staleness issue needs user attention
+      // confirmRequired: array of action-selector ties needing confirmation
+      confirmRequired: generalConfirmRequired,
+      actionTies
     };
   }
 
@@ -216,7 +224,7 @@
     }
 
     // Check for action-selector ties (require confirmation)
-    // Note: validation.confirmRequired already captures action-selector ties
+    // Note: validation.actionTies already captures action-selector ties
     const needsConfirmation = validation.confirmRequired || confirm;
 
     if (needsConfirmation) {
@@ -225,10 +233,7 @@
         results: [],
         errors: [],
         confirmRequired: true,
-        tieDetails: validation.failures.filter(f => {
-          // Filter to action-selector ties only
-          return pattern.actions?.some(a => a.selector === f.selector);
-        }),
+        tieDetails: validation.actionTies,
         message: 'Action selector tie or explicit confirm required. Review before proceeding.'
       };
     }
@@ -270,6 +275,8 @@
       confirmRequired: false
     };
   }
+
+  // --- Pattern Execution (continued) ---
 
   /**
    * Execute a single action on an element

@@ -38,6 +38,7 @@
       ],
       "js": [
         "content.js",
+        "learning/vendor/dexie.min.js",
         "learning/storage.js",
         "learning/page-type-scorer.js",
         "learning/patterns.js"
