@@ -1,5 +1,6 @@
 // FCI Workflow Assistant — Learning Layer Storage (Dexie wrapper)
 // IndexedDB schema for patterns, audit log, and URL pattern rules.
+// Dexie is loaded as a local script via manifest.json (no CDN, no network).
 
 (function() {
   'use strict';
@@ -8,40 +9,19 @@
   const DB_NAME = 'FCIWorkflowLearning';
   const DB_VERSION = 1;
 
-  // Lazy-load Dexie from CDN (no build step required)
-  let Dexie;
   let db;
 
-  async function loadDexie() {
-    if (typeof window.Dexie !== 'undefined') {
-      Dexie = window.Dexie;
-      return;
-    }
-    // Inject Dexie via script tag
-    await new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = 'https://unpkg.com/dexie@3.2.4/dist/dexie.min.js';
-      script.onload = () => {
-        Dexie = window.Dexie;
-        resolve();
-      };
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
-  }
-
   async function initDB() {
-    await loadDexie();
+    if (!window.Dexie) {
+      throw new Error('Dexie not loaded. Ensure dexie.min.js is in manifest content_scripts before storage.js');
+    }
 
     db = new Dexie(DB_NAME);
     db.version(DB_VERSION).stores({
-      patterns: '++id, &key, requestType, pageSignature, status, flowId, sequenceIndex, updatedAt',
+      patterns: '++id, &key, requestType, pageSignature, status, flowId, sequenceIndex, updatedAt, consecutiveSuccesses',
       auditLog: '++id, timestamp, requestType, pageSignature, patternId, outcome',
       urlPatternRules: '++id, &urlPattern, requestType, confidence, learnedFrom'
     });
-
-    // Migration hooks for future versions
-    // db.version(2).stores({ ... }).upgrade(tx => { ... });
 
     await db.open();
     console.log('[Learning Storage] IndexedDB initialized:', DB_NAME);
@@ -63,7 +43,7 @@
   async function getPattern(requestType, pageSignature) {
     if (!db) await initDB();
     const key = makePatternKey(requestType, pageSignature);
-    return await db.patterns.get({ key });
+    return await db.patterns.where('key').equals(key).first();
   }
 
   /**
@@ -91,7 +71,7 @@
 
   /**
    * Upsert pattern (insert or update)
-   * @param {Object} pattern - { requestType, pageSignature, flowId, sequenceIndex, selectors, actions, status, confidence, executionCount, lastVerified, ... }
+   * Uses .where('key').equals(key).modify() to avoid ConstraintError on unique index.
    */
   async function upsertPattern(pattern) {
     if (!db) await initDB();
@@ -109,6 +89,7 @@
       status: pattern.status || 'learning', // 'learning' | 'trusted' | 'promoted'
       confidence: pattern.confidence ?? 0,
       executionCount: pattern.executionCount ?? 0,
+      consecutiveSuccesses: pattern.consecutiveSuccesses ?? 0,
       lastVerified: pattern.lastVerified || now,
       updatedAt: now,
       createdAt: pattern.createdAt || now,
@@ -118,7 +99,11 @@
       metadata: pattern.metadata || {}
     };
 
-    await db.patterns.put(record);
+    // Try modify first (update existing), fall back to add (insert new)
+    const modified = await db.patterns.where('key').equals(key).modify(record);
+    if (modified === 0) {
+      await db.patterns.add(record);
+    }
     console.log('[Learning Storage] Pattern upserted:', key);
     return record;
   }
@@ -129,33 +114,53 @@
   async function updatePattern(requestType, pageSignature, updates) {
     if (!db) await initDB();
     const key = makePatternKey(requestType, pageSignature);
-    const existing = await db.patterns.get({ key });
-    if (!existing) return null;
-
-    const updated = { ...existing, ...updates, updatedAt: new Date().toISOString() };
-    await db.patterns.put(updated);
-    return updated;
+    const modified = await db.patterns.where('key').equals(key).modify({
+      ...updates,
+      updatedAt: new Date().toISOString()
+    });
+    if (modified === 0) return null;
+    return await getPattern(requestType, pageSignature);
   }
 
   /**
    * Increment execution count and update confidence/lastVerified
+   * - Success: confidence boost + consecutiveSuccesses++
+   * - Failure: confidence penalty (-0.15), consecutiveSuccesses = 0
+   * - Promotion: requires 5+ consecutive successes AND confidence >= 0.8
    */
   async function recordExecution(requestType, pageSignature, outcome, selectorsUsed) {
     if (!db) await initDB();
     const key = makePatternKey(requestType, pageSignature);
-    const existing = await db.patterns.get({ key });
+    const existing = await getPattern(requestType, pageSignature);
     if (!existing) return;
 
     const count = (existing.executionCount || 0) + 1;
-    // Confidence boost: logarithmic, caps at ~0.95 after ~50 successes
-    const confidenceBoost = Math.min(0.02 * Math.log10(count + 1), 0.05);
-    const newConfidence = Math.min((existing.confidence || 0) + confidenceBoost, 0.95);
+    const isSuccess = outcome === 'success';
 
-    await db.patterns.update(key, {
+    let newConfidence = existing.confidence || 0;
+    let newConsecutiveSuccesses = existing.consecutiveSuccesses || 0;
+
+    if (isSuccess) {
+      const boost = Math.min(0.02 * Math.log10(count + 1), 0.05);
+      newConfidence = Math.min(newConfidence + boost, 0.95);
+      newConsecutiveSuccesses += 1;
+    } else {
+      newConfidence = Math.max(newConfidence - 0.15, 0);
+      newConsecutiveSuccesses = 0;
+    }
+
+    const newStatus = existing.status === 'learning' 
+      && newConsecutiveSuccesses >= 5 
+      && newConfidence >= 0.8 
+      ? 'trusted' 
+      : existing.status;
+
+    await db.patterns.where('key').equals(key).modify({
       executionCount: count,
       confidence: newConfidence,
+      consecutiveSuccesses: newConsecutiveSuccesses,
       lastVerified: new Date().toISOString(),
-      status: existing.status === 'learning' && count >= 5 && newConfidence >= 0.8 ? 'trusted' : existing.status,
+      status: newStatus,
       updatedAt: new Date().toISOString()
     });
 
@@ -165,7 +170,7 @@
       pageSignature,
       patternId: key,
       selectorsUsed,
-      outcome,
+      outcome: isSuccess ? 'success' : 'failure',
       timestamp: new Date().toISOString()
     });
   }
@@ -176,11 +181,13 @@
   async function promotePattern(requestType, pageSignature) {
     if (!db) await initDB();
     const key = makePatternKey(requestType, pageSignature);
-    await db.patterns.update(key, {
+    const modified = await db.patterns.where('key').equals(key).modify({
       status: 'promoted',
       updatedAt: new Date().toISOString()
     });
-    console.log('[Learning Storage] Pattern promoted:', key);
+    if (modified > 0) {
+      console.log('[Learning Storage] Pattern promoted:', key);
+    }
   }
 
   /**
@@ -189,8 +196,10 @@
   async function deletePattern(requestType, pageSignature) {
     if (!db) await initDB();
     const key = makePatternKey(requestType, pageSignature);
-    await db.patterns.delete(key);
-    console.log('[Learning Storage] Pattern deleted:', key);
+    const deleted = await db.patterns.where('key').equals(key).delete();
+    if (deleted > 0) {
+      console.log('[Learning Storage] Pattern deleted:', key);
+    }
   }
 
   // --- Audit Log Operations ---

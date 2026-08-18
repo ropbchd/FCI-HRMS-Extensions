@@ -37,7 +37,10 @@
         "https://hrmsfci.in/workflow/review/*"
       ],
       "js": [
-        "content.js"
+        "content.js",
+        "learning/storage.js",
+        "learning/page-type-scorer.js",
+        "learning/patterns.js"
       ],
       "run_at": "document_idle",
       "css": [
@@ -62,7 +65,8 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "floating-window-framework/**/*"
+        "floating-window-framework/**/*",
+        "learning/**/*"
       ],
       "matches": [
         "https://www.hrmsfci.in/*",

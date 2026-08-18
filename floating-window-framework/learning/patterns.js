@@ -152,11 +152,12 @@
 
   /**
    * Verify all selectors in a pattern still resolve to exactly one element each
-   * @returns {Object} { valid: boolean, failures: Array, warnings: Array }
+   * @returns {Object} { valid: boolean, failures: Array, warnings: Array, confirmRequired: boolean }
    */
   function validatePattern(pattern) {
     const failures = [];
     const warnings = [];
+    let confirmRequired = false;
 
     for (const [selectorName, selectorDef] of Object.entries(pattern.selectors || {})) {
       const result = matchSelector(selectorDef);
@@ -171,11 +172,9 @@
         // Check if this selector feeds an action
         const isActionSelector = pattern.actions?.some(a => a.selector === selectorName);
         if (isActionSelector) {
-          failures.push({
-            selector: selectorName,
-            reason: 'Tie on action selector — multiple elements matched',
-            matchedStrategy: result.matchedStrategy
-          });
+          // Action-selector tie: route to confirmRequired instead of failures
+          // so executePattern can surface the confirm prompt
+          confirmRequired = true;
         } else {
           warnings.push({
             selector: selectorName,
@@ -189,7 +188,8 @@
     return {
       valid: failures.length === 0,
       failures,
-      warnings
+      warnings,
+      confirmRequired
     };
   }
 
@@ -211,22 +211,24 @@
         success: false,
         results: [],
         errors: validation.failures.map(f => `${f.selector}: ${f.reason}`),
-        confirmRequired: false
+        confirmRequired: validation.confirmRequired
       };
     }
 
     // Check for action-selector ties (require confirmation)
-    const actionTies = validation.warnings.filter(w =>
-      pattern.actions?.some(a => a.selector === w.selector && a.type !== 'observe')
-    );
+    // Note: validation.confirmRequired already captures action-selector ties
+    const needsConfirmation = validation.confirmRequired || confirm;
 
-    if (actionTies.length > 0 || confirm) {
+    if (needsConfirmation) {
       return {
         success: false,
         results: [],
         errors: [],
         confirmRequired: true,
-        tieDetails: actionTies,
+        tieDetails: validation.failures.filter(f => {
+          // Filter to action-selector ties only
+          return pattern.actions?.some(a => a.selector === f.selector);
+        }),
         message: 'Action selector tie or explicit confirm required. Review before proceeding.'
       };
     }
