@@ -1512,6 +1512,33 @@ console.warn('[FCI NOC Assistant] "Add Reviewer" button not found.');
 
 // ----------------------------------------------------------------
 
+// --- FRAMEWORK LOADER ---
+
+function loadFramework() {
+  return new Promise((resolve) => {
+    // Load floating window framework
+    const fwScript = document.createElement('script');
+    fwScript.src = chrome.runtime.getURL('floating-window-framework/core/floating_window.js');
+    fwScript.onload = () => {
+      console.log('[FCI NOC Assistant] Floating window framework loaded');
+      resolve();
+    };
+    fwScript.onerror = () => {
+      console.warn('[FCI NOC Assistant] Failed to load floating window framework');
+      resolve();
+    };
+    document.head.appendChild(fwScript);
+  });
+}
+
+// Initialize learning layer (optional, for future use)
+function initLearningLayer() {
+  // Learning layer will be loaded via web_accessible_resources when needed
+  console.log('[FCI NOC Assistant] Learning layer available via framework');
+}
+
+// ----------------------------------------------------------------
+
 // --- BRIDGE IMPLEMENTATION ---
 
 window.FCIWorkflow = {
@@ -1557,22 +1584,33 @@ window.FCIWorkflow = {
 // --- START ---
 
 function getRequestId() {
-const allLabels = document.querySelectorAll('p, span, div, td, h1, h2, h3, h4, h5');
-for (let el of allLabels) {
-const text = el.textContent.trim();
-if (/^NOE\d+$/i.test(text)) return text.toUpperCase();
-}
-const bodyText = document.body.innerText || '';
-const match = bodyText.match(/\bNOE\d+\b/i);
-return match ? match[0].toUpperCase() : null;
+  const allLabels = document.querySelectorAll('p, span, div, td, h1, h2, h3, h4, h5');
+  for (let el of allLabels) {
+    const text = el.textContent.trim();
+    if (/^NOE\d+$/i.test(text)) return text.toUpperCase();
+  }
+  const bodyText = document.body.innerText || '';
+  const match = bodyText.match(/\bNOE\d+\b/i);
+  return match ? match[0].toUpperCase() : null;
 }
 
-const requestId = getRequestId();
-if (!requestId || !requestId.startsWith('NOE')) {
-console.log('[FCI NOC Assistant] Request ID not found or does not start with NOE ("' + (requestId || 'none') + '"). Extension will NOT activate on this page.');
-} else {
-console.log('[FCI NOC Assistant] Request ID confirmed: ' + requestId + '. Activating...');
-setTimeout(clickViewActionHistory, 2000);
+async function start() {
+  const requestId = getRequestId();
+  if (!requestId || !requestId.startsWith('NOE')) {
+    console.log('[FCI NOC Assistant] Request ID not found or does not start with NOE ("' + (requestId || 'none') + '"). Extension will NOT activate on this page.');
+    return;
+  }
+
+  console.log('[FCI NOC Assistant] Request ID confirmed: ' + requestId + '. Activating...');
+
+  // Load framework
+  await loadFramework();
+  initLearningLayer();
+
+  // Start workflow
+  setTimeout(clickViewActionHistory, 2000);
 }
+
+start();
 
 })();

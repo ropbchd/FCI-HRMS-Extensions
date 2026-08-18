@@ -6,6 +6,23 @@
 
 (function () {
 
+  // --- FRAMEWORK LOADER (MAIN world) ---
+  function loadFrameworkMain() {
+    return new Promise((resolve) => {
+      const fwScript = document.createElement('script');
+      fwScript.src = chrome.runtime.getURL('floating-window-framework/core/floating_window.js');
+      fwScript.onload = () => {
+        console.log('[FCI NOC Assistant] Add Reviewer: Floating window framework loaded (MAIN)');
+        resolve();
+      };
+      fwScript.onerror = () => {
+        console.warn('[FCI NOC Assistant] Add Reviewer: Failed to load floating window framework');
+        resolve();
+      };
+      document.head.appendChild(fwScript);
+    });
+  }
+
   // --- NOE GUARD ---
   const bodyText = document.body.innerText || '';
   const noeMatch = bodyText.match(/\bNOE\d+\b/i);
@@ -511,7 +528,10 @@
   }
 
   // --- STARTUP ---
-  function startup() {
+  async function startup() {
+    // Load framework first
+    await loadFrameworkMain();
+
     waitForJQuery(function() {
       setTimeout(function() {
         setEntriesPerPageAndScroll(function() {
