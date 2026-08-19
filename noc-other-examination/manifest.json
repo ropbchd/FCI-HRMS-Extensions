@@ -58,6 +58,7 @@
         "learning/storage.js",
         "learning/page-type-scorer.js",
         "learning/patterns.js",
+        "floating-window-framework/core/floating_window.js",
         "content_add_reviewer.js"
       ],
       "run_at": "document_idle",
