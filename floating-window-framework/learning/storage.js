@@ -12,6 +12,7 @@
   let db;
 
   async function initDB() {
+    // Returns { success: true, data: db } | { success: false, error } — unwrap .data at call site
     try {
       if (!window.Dexie) {
         throw new Error('Dexie not loaded. Ensure dexie.min.js is in manifest content_scripts before storage.js');
@@ -46,6 +47,7 @@
    * Get pattern by requestType + pageSignature
    */
   async function getPattern(requestType, pageSignature) {
+    // Returns { success: true, data: pattern } | { success: false, error } — unwrap .data at call site
     try {
       if (!db) await initDB();
       const key = makePatternKey(requestType, pageSignature);
@@ -85,6 +87,7 @@
    * Preserves createdAt on updates
    */
   async function upsertPattern(pattern) {
+    // Returns { success: true, data: record } | { success: false, error } — unwrap .data at call site
     try {
       if (!db) await initDB();
       const key = makePatternKey(pattern.requestType, pattern.pageSignature);
@@ -146,6 +149,7 @@
    * - Promotion: requires 5+ consecutive successes AND confidence >= 0.8
    */
   async function recordExecution(requestType, pageSignature, outcome, selectorsUsed) {
+    // Returns { success: true } | { success: false, error } — check .success at call site
     try {
       if (!db) await initDB();
       const key = makePatternKey(requestType, pageSignature);
