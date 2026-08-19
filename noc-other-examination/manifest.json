@@ -54,6 +54,10 @@
         "https://hrmsfci.in/workflow/add-reviewer/*"
       ],
       "js": [
+        "learning/vendor/dexie.min.js",
+        "learning/storage.js",
+        "learning/page-type-scorer.js",
+        "learning/patterns.js",
         "content_add_reviewer.js"
       ],
       "run_at": "document_idle",

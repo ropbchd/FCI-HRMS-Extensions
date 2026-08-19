@@ -313,13 +313,15 @@
         break;
 
       case 'select-option':
-        // For dropdowns: click to open, then click option
-        element.click();
-        await sleep(200);
-        const option = element.querySelector(`option[value="${value}"]`) ||
-                       Array.from(element.options).find(o => normalizeText(o.textContent) === normalizeText(value));
-        if (option) option.selected = true;
-        element.dispatchEvent(new Event('change', { bubbles: true }));
+        // Use same logic as set-value for SELECT elements (reliable Select2 handling)
+        if (element.tagName === 'SELECT') {
+          element.value = value;
+          element.dispatchEvent(new Event('change', { bubbles: true }));
+          element.dispatchEvent(new Event('input', { bubbles: true }));
+          if (window.jQuery && window.jQuery.fn.select2) {
+            window.jQuery(element).trigger('change');
+          }
+        }
         break;
 
       case 'wait-for':
@@ -367,32 +369,6 @@
     });
   }
 
-  // --- Confidence Update ---
-
-  /**
-   * Update pattern confidence based on execution outcome
-   * @param {Object} pattern - existing pattern
-   * @param {boolean} success - whether execution succeeded
-   * @param {boolean} userConfirmed - whether user confirmed a prompt
-   * @returns {number} new confidence (0-1)
-   */
-  function updateConfidence(pattern, success, userConfirmed) {
-    let conf = pattern.confidence || 0;
-    const count = pattern.executionCount || 0;
-
-    if (success) {
-      // Success: logarithmic boost, diminishing returns
-      const boost = Math.min(0.02 * Math.log10(count + 2), 0.05);
-      conf = Math.min(conf + boost, 0.98);
-      if (userConfirmed) conf = Math.min(conf + 0.02, 0.98); // Extra boost for confirmed
-    } else {
-      // Failure: sharp penalty
-      conf = Math.max(conf - 0.15, 0);
-    }
-
-    return conf;
-  }
-
   // --- Public API ---
 
   window.FCILearningPatterns = {
@@ -402,7 +378,6 @@
     validatePattern,
     executePattern,
     executeAction,
-    updateConfidence,
     sleep,
     waitForSelector
   };

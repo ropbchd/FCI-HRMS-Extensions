@@ -66,7 +66,7 @@
       '<div class="fci-panel-body" id="fci-panel-body">' +
         '<div class="fci-info-block">' +
           '<div class="fci-info-primary" id="fci-request-id">Loading...</div>' +
-          '<div class="fci-info-secondary" id="fci-request-type">NOC For Other Examination</div>' +
+          '<div class="fci-info-secondary" id="fci-request-type">Detecting...</div>' +
         '</div>' +
         '<div class="fci-section-label">Recommended Action</div>' +
         '<div class="fci-recommended" id="fci-recommended">Detecting...</div>' +
@@ -169,6 +169,10 @@
     // Request ID
     const reqEl = document.getElementById('fci-request-id');
     if (reqEl) reqEl.textContent = ctx.requestId || 'Unknown Request';
+
+    // Request Type Label
+    const typeEl = document.getElementById('fci-request-type');
+    if (typeEl) typeEl.textContent = ctx.requestTypeLabel || 'Detecting...';
 
     // Recommended action
     if (ctx.hasRecommendation) {

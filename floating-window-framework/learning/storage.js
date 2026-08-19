@@ -71,12 +71,13 @@
 
   /**
    * Upsert pattern (insert or update)
-   * Uses .where('key').equals(key).modify() to avoid ConstraintError on unique index.
+   * Preserves createdAt on updates
    */
   async function upsertPattern(pattern) {
     if (!db) await initDB();
     const key = makePatternKey(pattern.requestType, pattern.pageSignature);
     const now = new Date().toISOString();
+    const existing = await db.patterns.where('key').equals(key).first();
 
     const record = {
       key,
@@ -92,7 +93,7 @@
       consecutiveSuccesses: pattern.consecutiveSuccesses ?? 0,
       lastVerified: pattern.lastVerified || now,
       updatedAt: now,
-      createdAt: pattern.createdAt || now,
+      createdAt: existing?.createdAt || pattern.createdAt || now,
       // Extended fields
       urlPatterns: pattern.urlPatterns || [],
       anchorFingerprint: pattern.anchorFingerprint || '',
@@ -315,6 +316,23 @@
     console.log('[Learning Storage] Data imported successfully');
   }
 
+  async function downloadExport() {
+    const data = await exportAllData();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fci-learning-export-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importFromFile(file) {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    await importData(data);
+  }
+
   // --- Public API ---
 
   window.FCILearningStorage = {
@@ -334,6 +352,8 @@
     findRequestTypeByUrl,
     exportAllData,
     importData,
+    downloadExport,
+    importFromFile,
     makePatternKey
   };
 
