@@ -282,7 +282,8 @@ default: return n + 'th';
 
 function parseDateFromString(dateStr) {
   if (!dateStr) return null;
-  const match = dateStr.match(/(\d{1,2})[./](\d{1,2})[./](\d{4})/);
+  // Included hyphen (-) alongside slash (/) and dot (.)
+  const match = dateStr.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{4})/);
   if (match) {
     const day = parseInt(match[1], 10);
     const month = parseInt(match[2], 10) - 1;

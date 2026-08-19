@@ -12,20 +12,25 @@
   let db;
 
   async function initDB() {
-    if (!window.Dexie) {
-      throw new Error('Dexie not loaded. Ensure dexie.min.js is in manifest content_scripts before storage.js');
+    try {
+      if (!window.Dexie) {
+        throw new Error('Dexie not loaded. Ensure dexie.min.js is in manifest content_scripts before storage.js');
+      }
+
+      db = new Dexie(DB_NAME);
+      db.version(DB_VERSION).stores({
+        patterns: '++id, &key, requestType, pageSignature, status, flowId, sequenceIndex, updatedAt, consecutiveSuccesses',
+        auditLog: '++id, timestamp, requestType, pageSignature, patternId, outcome',
+        urlPatternRules: '++id, &urlPattern, requestType, confidence, learnedFrom'
+      });
+
+      await db.open();
+      console.log('[Learning Storage] IndexedDB initialized:', DB_NAME);
+      return { success: true, data: db };
+    } catch (e) {
+      console.error('[Learning Storage] initDB failed:', e);
+      return { success: false, error: e.message };
     }
-
-    db = new Dexie(DB_NAME);
-    db.version(DB_VERSION).stores({
-      patterns: '++id, &key, requestType, pageSignature, status, flowId, sequenceIndex, updatedAt, consecutiveSuccesses',
-      auditLog: '++id, timestamp, requestType, pageSignature, patternId, outcome',
-      urlPatternRules: '++id, &urlPattern, requestType, confidence, learnedFrom'
-    });
-
-    await db.open();
-    console.log('[Learning Storage] IndexedDB initialized:', DB_NAME);
-    return db;
   }
 
   // --- Pattern Operations ---
@@ -41,9 +46,15 @@
    * Get pattern by requestType + pageSignature
    */
   async function getPattern(requestType, pageSignature) {
-    if (!db) await initDB();
-    const key = makePatternKey(requestType, pageSignature);
-    return await db.patterns.where('key').equals(key).first();
+    try {
+      if (!db) await initDB();
+      const key = makePatternKey(requestType, pageSignature);
+      const pattern = await db.patterns.where('key').equals(key).first();
+      return { success: true, data: pattern };
+    } catch (e) {
+      console.error('[Learning Storage] getPattern failed:', e);
+      return { success: false, error: e.message };
+    }
   }
 
   /**
@@ -74,39 +85,44 @@
    * Preserves createdAt on updates
    */
   async function upsertPattern(pattern) {
-    if (!db) await initDB();
-    const key = makePatternKey(pattern.requestType, pattern.pageSignature);
-    const now = new Date().toISOString();
-    const existing = await db.patterns.where('key').equals(key).first();
+    try {
+      if (!db) await initDB();
+      const key = makePatternKey(pattern.requestType, pattern.pageSignature);
+      const now = new Date().toISOString();
+      const existing = await db.patterns.where('key').equals(key).first();
 
-    const record = {
-      key,
-      requestType: pattern.requestType,
-      pageSignature: pattern.pageSignature,
-      flowId: pattern.flowId || null,
-      sequenceIndex: pattern.sequenceIndex ?? 0,
-      selectors: pattern.selectors || {},
-      actions: pattern.actions || [],
-      status: pattern.status || 'learning', // 'learning' | 'trusted' | 'promoted'
-      confidence: pattern.confidence ?? 0,
-      executionCount: pattern.executionCount ?? 0,
-      consecutiveSuccesses: pattern.consecutiveSuccesses ?? 0,
-      lastVerified: pattern.lastVerified || now,
-      updatedAt: now,
-      createdAt: existing?.createdAt || pattern.createdAt || now,
-      // Extended fields
-      urlPatterns: pattern.urlPatterns || [],
-      anchorFingerprint: pattern.anchorFingerprint || '',
-      metadata: pattern.metadata || {}
-    };
+      const record = {
+        key,
+        requestType: pattern.requestType,
+        pageSignature: pattern.pageSignature,
+        flowId: pattern.flowId || null,
+        sequenceIndex: pattern.sequenceIndex ?? 0,
+        selectors: pattern.selectors || {},
+        actions: pattern.actions || [],
+        status: pattern.status || 'learning', // 'learning' | 'trusted' | 'promoted'
+        confidence: pattern.confidence ?? 0,
+        executionCount: pattern.executionCount ?? 0,
+        consecutiveSuccesses: pattern.consecutiveSuccesses ?? 0,
+        lastVerified: pattern.lastVerified || now,
+        updatedAt: now,
+        createdAt: existing?.createdAt || pattern.createdAt || now,
+        // Extended fields
+        urlPatterns: pattern.urlPatterns || [],
+        anchorFingerprint: pattern.anchorFingerprint || '',
+        metadata: pattern.metadata || {}
+      };
 
-    // Try modify first (update existing), fall back to add (insert new)
-    const modified = await db.patterns.where('key').equals(key).modify(record);
-    if (modified === 0) {
-      await db.patterns.add(record);
+      // Try modify first (update existing), fall back to add (insert new)
+      const modified = await db.patterns.where('key').equals(key).modify(record);
+      if (modified === 0) {
+        await db.patterns.add(record);
+      }
+      console.log('[Learning Storage] Pattern upserted:', key);
+      return { success: true, data: record };
+    } catch (e) {
+      console.error('[Learning Storage] upsertPattern failed:', e);
+      return { success: false, error: e.message };
     }
-    console.log('[Learning Storage] Pattern upserted:', key);
-    return record;
   }
 
   /**
@@ -130,64 +146,78 @@
    * - Promotion: requires 5+ consecutive successes AND confidence >= 0.8
    */
   async function recordExecution(requestType, pageSignature, outcome, selectorsUsed) {
-    if (!db) await initDB();
-    const key = makePatternKey(requestType, pageSignature);
-    const existing = await getPattern(requestType, pageSignature);
-    if (!existing) return;
+    try {
+      if (!db) await initDB();
+      const key = makePatternKey(requestType, pageSignature);
+      const existingResult = await getPattern(requestType, pageSignature);
+      if (!existingResult.success || !existingResult.data) return { success: false, error: 'Pattern not found' };
 
-    const count = (existing.executionCount || 0) + 1;
-    const isSuccess = outcome === 'success';
+      const existing = existingResult.data;
+      const count = (existing.executionCount || 0) + 1;
+      const isSuccess = outcome === 'success';
 
-    let newConfidence = existing.confidence || 0;
-    let newConsecutiveSuccesses = existing.consecutiveSuccesses || 0;
+      let newConfidence = existing.confidence || 0;
+      let newConsecutiveSuccesses = existing.consecutiveSuccesses || 0;
 
-    if (isSuccess) {
-      const boost = Math.min(0.02 * Math.log10(count + 1), 0.05);
-      newConfidence = Math.min(newConfidence + boost, 0.95);
-      newConsecutiveSuccesses += 1;
-    } else {
-      newConfidence = Math.max(newConfidence - 0.15, 0);
-      newConsecutiveSuccesses = 0;
+      if (isSuccess) {
+        const boost = Math.min(0.02 * Math.log10(count + 1), 0.05);
+        newConfidence = Math.min(newConfidence + boost, 0.95);
+        newConsecutiveSuccesses += 1;
+      } else {
+        newConfidence = Math.max(newConfidence - 0.15, 0);
+        newConsecutiveSuccesses = 0;
+      }
+
+      const newStatus = existing.status === 'learning' 
+        && newConsecutiveSuccesses >= 5 
+        && newConfidence >= 0.8 
+        ? 'trusted' 
+        : existing.status;
+
+      await db.patterns.where('key').equals(key).modify({
+        executionCount: count,
+        confidence: newConfidence,
+        consecutiveSuccesses: newConsecutiveSuccesses,
+        lastVerified: new Date().toISOString(),
+        status: newStatus,
+        updatedAt: new Date().toISOString()
+      });
+
+      // Also log to audit
+      await addAuditLog({
+        requestType,
+        pageSignature,
+        patternId: key,
+        selectorsUsed,
+        outcome: isSuccess ? 'success' : 'failure',
+        timestamp: new Date().toISOString()
+      });
+
+      return { success: true };
+    } catch (e) {
+      console.error('[Learning Storage] recordExecution failed:', e);
+      return { success: false, error: e.message };
     }
-
-    const newStatus = existing.status === 'learning' 
-      && newConsecutiveSuccesses >= 5 
-      && newConfidence >= 0.8 
-      ? 'trusted' 
-      : existing.status;
-
-    await db.patterns.where('key').equals(key).modify({
-      executionCount: count,
-      confidence: newConfidence,
-      consecutiveSuccesses: newConsecutiveSuccesses,
-      lastVerified: new Date().toISOString(),
-      status: newStatus,
-      updatedAt: new Date().toISOString()
-    });
-
-    // Also log to audit
-    await addAuditLog({
-      requestType,
-      pageSignature,
-      patternId: key,
-      selectorsUsed,
-      outcome: isSuccess ? 'success' : 'failure',
-      timestamp: new Date().toISOString()
-    });
   }
 
   /**
    * Mark pattern as promoted (retires from runtime execution)
    */
   async function promotePattern(requestType, pageSignature) {
-    if (!db) await initDB();
-    const key = makePatternKey(requestType, pageSignature);
-    const modified = await db.patterns.where('key').equals(key).modify({
-      status: 'promoted',
-      updatedAt: new Date().toISOString()
-    });
-    if (modified > 0) {
-      console.log('[Learning Storage] Pattern promoted:', key);
+    try {
+      if (!db) await initDB();
+      const key = makePatternKey(requestType, pageSignature);
+      const modified = await db.patterns.where('key').equals(key).modify({
+        status: 'promoted',
+        updatedAt: new Date().toISOString()
+      });
+      if (modified > 0) {
+        console.log('[Learning Storage] Pattern promoted:', key);
+      }
+      return { success: true, data: modified > 0 };
+    } catch (e) {
+      console.error('[Learning Storage] promotePattern failed:', e);
+      return { success: false, error: e.message };
     }
   }
 
@@ -195,11 +225,17 @@
    * Delete pattern (e.g., on discard)
    */
   async function deletePattern(requestType, pageSignature) {
-    if (!db) await initDB();
-    const key = makePatternKey(requestType, pageSignature);
-    const deleted = await db.patterns.where('key').equals(key).delete();
-    if (deleted > 0) {
-      console.log('[Learning Storage] Pattern deleted:', key);
+    try {
+      if (!db) await initDB();
+      const key = makePatternKey(requestType, pageSignature);
+      const deleted = await db.patterns.where('key').equals(key).delete();
+      if (deleted > 0) {
+        console.log('[Learning Storage] Pattern deleted:', key);
+      }
+      return { success: true, data: deleted > 0 };
+    } catch (e) {
+      console.error('[Learning Storage] deletePattern failed:', e);
+      return { success: false, error: e.message };
     }
   }
 

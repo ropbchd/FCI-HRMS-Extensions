@@ -51,8 +51,8 @@
         return null;
       }
 
-      const pattern = await storage.getPattern(classification.requestType, classification.pageSignature);
-      if (!pattern) {
+      const patternResult = await storage.getPattern(classification.requestType, classification.pageSignature);
+      if (!patternResult || !patternResult.success || !patternResult.data) {
         console.log('[Learning Orchestrator] No learned pattern for:', classification.requestType, classification.pageSignature);
         surfaceState('no-pattern', {
           classification,
@@ -61,6 +61,7 @@
         return { state: 'no-pattern', classification };
       }
 
+      const pattern = patternResult.data;
       console.log('[Learning Orchestrator] Found pattern:', pattern.key || makePatternKey(classification.requestType, classification.pageSignature));
 
       // 4. Validate pattern
@@ -104,12 +105,16 @@
       console.log('[Learning Orchestrator] Execution result:', execResult);
 
       // 7. Record execution
-      await storage.recordExecution(
+      const recordResult = await storage.recordExecution(
         classification.requestType,
         classification.pageSignature,
         execResult.success ? 'success' : 'failure',
         extractSelectorsUsed(pattern, execResult)
       );
+      
+      if (!recordResult.success) {
+        console.warn('[Learning Orchestrator] Failed to record execution:', recordResult.error);
+      }
 
       surfaceState('executed', {
         classification,
