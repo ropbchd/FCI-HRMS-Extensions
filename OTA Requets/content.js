@@ -16,13 +16,17 @@
   const CADRE_LOOKUP = {
     '286357': 'General',   // RISHIKESH MISHRA
     '315595': 'Depot',     // SAMYAK NILKANTH MESHRAM
-    '316946': 'Depot'      // ANKIT MALIK
+    '316946': 'Depot',     // ANKIT MALIK
+    '317485': 'General'    // JATIN - Assistant Grade - III
   };
 
   const MULTIPLICATION_FACTOR_VALUE = '1.1';
 
   // --- Google Sheets register write-back ---
   const OTA_SHEET_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxdPk85q44afaCsFvfmTcOazUUVawis-qtCRqfGqqNRw0BFO2CHc5uwkLA_BkSA0oZD-w/exec';
+
+  // Google Sheet URL for verification (direct link to "OTA" sheet)
+  const GOOGLE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/18TrCiKWXmobODD3C4YLZ7T3t50cmrDt9jdLaQFLyP-s/edit?gid=645230595#gid=645230595';
 
   // --- SAFETY CHECK: Only activate for OTA requests (Request ID starts with CBO) ---
   function getRequestId() {
@@ -32,10 +36,16 @@
   }
 
   const requestId = getRequestId();
+  
+  // Reset sheet flag for each new request so sheet opens every time
+  sessionStorage.removeItem('fci_sheet_opened');
+
   if (!requestId || !requestId.startsWith(PREFIX)) {
     console.log(LOG + ' Not a CBO (OTA) request. Extension will NOT activate.');
   } else {
     console.log(LOG + ' Request ID confirmed: ' + requestId + '. Activating...');
+    // Add "Open Sheet" button on the review page
+    addOpenSheetButton();
     setTimeout(clickViewActionHistory, 2000);
   }
 
@@ -501,6 +511,8 @@
         
         if (result && result.success) {
           console.log(LOG + ' ✅ Register write-back succeeded: ' + (result.message || 'OK'));
+          // Open Google Sheet for verification (only once per request)
+          openGoogleSheetForVerification();
         } else {
           const reason = (result && result.message) ? result.message : 'Unknown error';
           console.warn(LOG + ' ⚠️ Register write-back FAILED: ' + reason);
@@ -547,7 +559,55 @@
     document.body.appendChild(banner);
   }
 
+  // --- Add "Open Sheet" button on the review page ---
+  function addOpenSheetButton() {
+    if (document.getElementById('fci-open-sheet-btn')) return;
+    
+    const btn = document.createElement('button');
+    btn.id = 'fci-open-sheet-btn';
+    btn.textContent = '📊 Open OTA Sheet';
+    btn.style.cssText = 'position:fixed;bottom:20px;left:20px;z-index:99999;background:#026636;color:#fff;padding:10px 16px;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,0.2);';
+    
+    btn.addEventListener('click', function() {
+      window.open(GOOGLE_SHEET_URL, '_blank');
+    });
+    
+    document.body.appendChild(btn);
+    console.log('[FCI OTA Assistant] Added "Open OTA Sheet" button.');
+  }
+
+  // --- Open Google Sheet in new tab for verification ---
+  function openGoogleSheetForVerification() {
+    // Check if we already opened the sheet for this request
+    const sheetOpened = sessionStorage.getItem('fci_sheet_opened');
+    if (sheetOpened === 'yes') {
+      console.log('[FCI OTA Assistant] Google Sheet already opened for this request. Skipping.');
+      return;
+    }
+
+    console.log('[FCI OTA Assistant] ✅ Write-back successful. Opening Google Sheet for verification...');
+
+    // Open in new tab
+    const newTab = window.open(GOOGLE_SHEET_URL, '_blank');
+
+    if (newTab) {
+      console.log('[FCI OTA Assistant] ✅ Google Sheet opened in new tab.');
+      sessionStorage.setItem('fci_sheet_opened', 'yes');
+    } else {
+      console.warn('[FCI OTA Assistant] ⚠️ Could not open Google Sheet — popup blocker may be active.');
+    }
+  }
+
   // --- Check whether a supporting document is attached ---
+
+  // --- Open Google Sheet to the specific tab ---
+  function openGoogleSheet() {
+    chrome.tabs.create({
+      url: 'https://docs.google.com/spreadsheets/d/18TrCiKWXmobODD3C4YLZ7T3t50cmrDt9jdLaQFLyP-s/edit?gid=645230595#gid=645230595'
+    });
+  }
+
+// --- Check whether a supporting document is attached ---
   function isDocumentAttached() {
     const allEls = document.querySelectorAll('label, span, div, p');
     for (let el of allEls) {
@@ -574,12 +634,14 @@
 
   // --- Build the OTA remark text (document attached variant) ---
   function buildOtaRemarkWithDocument(employeeName, designation, cadre, admissibleHrs) {
-    return 'Sir, kindly find the reference to the supporting document attached by the requesting employee, the OTA claimed has also been verified by the Manager (GM - Cell). Details of the OTA claim have been recorded separately. With regard to the Multiplication Factor, it is submitted that, as per Section 03 of The Punjab Shops and Commercial Establishments Act, 1958 (copy enclosed), the provisions of the said Act are not applicable to offices of or under the Central or State Governments, (except in the case of commercial undertakings), also accordingly, as per the relevant FCI OTA Circular (copy enclosed), the multiplication factor of 1.1 times of the hourly normal wage is applicable at exempted locations. Therefore, if agreed, in view of above, OTA claim of Sh. ' + employeeName + ', ' + designation + ' (' + cadre + '), calculated with a multiplication factor of 1.1 for the verified ' + admissibleHrs + ' hours, may be sanctioned, subject to the financial concurrence of the Finance Division, Local. Submitted please.';
+    const properEmployeeName = employeeName.charAt(0).toUpperCase() + employeeName.slice(1);
+    return 'Sir, kindly find the reference to the supporting document attached by the requesting employee, the OTA claimed has also been verified by the D.G.M (Cord.). Details of the OTA claim have been recorded separately. With regard to the Multiplication Factor, it is submitted that, as per Section 03 of The Punjab Shops and Commercial Establishments Act, 1958 (copy enclosed), the provisions of the said Act are not applicable to offices of or under the Central or State Governments, (except in the case of commercial undertakings), also accordingly, as per the relevant FCI OTA Circular (copy enclosed), the multiplication factor of 1.1 times of the hourly normal wage is applicable at exempted locations. In view of above, OTA claim of Sh. ' + properEmployeeName + ', ' + designation + ' (' + cadre + '), calculated with a multiplication factor of 1.1 for the verified ' + admissibleHrs + ' hours, may please be sanctioned, subject to the financial concurrence of the Finance Division, Local. Submitted please.';
   }
 
   // --- Build the OTA remark text (no document attached variant) ---
   function buildOtaRemarkNoDocument(employeeName, designation, cadre, admissibleHrs) {
-    return 'Sir, the details of the OTA claim have been recorded separately. With regard to the Multiplication Factor, it is submitted that, as per Section 03 of The Punjab Shops and Commercial Establishments Act, 1958 (copy enclosed), the provisions of the said Act are not applicable to offices of or under the Central or State Governments, (except in the case of commercial undertakings), also accordingly, as per the relevant FCI OTA Circular (copy enclosed), the multiplication factor of 1.1 times of the hourly normal wage is applicable at exempted locations. In view of above, if agreed, with the details of the OTA timings submitted by the requesting official, the OTA claim of Sh. ' + employeeName + ', ' + designation + ' (' + cadre + '), calculated with a multiplication factor of 1.1 for the verified ' + admissibleHrs + ' hours, may be sanctioned, subject to the financial concurrence of the Finance Division - Local. Submitted please.';
+    const properEmployeeName = employeeName.charAt(0).toUpperCase() + employeeName.slice(1);
+    return 'Sir, the details of the OTA claim have been recorded separately. With regard to the Multiplication Factor, it is submitted that, as per Section 03 of The Punjab Shops and Commercial Establishments Act, 1958 (copy enclosed), the provisions of the said Act are not applicable to offices of or under the Central or State Governments, (except in the case of commercial undertakings), also accordingly, as per the relevant FCI OTA Circular (copy enclosed), the multiplication factor of 1.1 times of the hourly normal wage is applicable at exempted locations. In view of above, if agreed, with the details of the OTA timings submitted by the requesting official, the OTA claim of Sh. ' + properEmployeeName + ', ' + designation + ' (' + cadre + '), calculated with a multiplication factor of 1.1 for the verified ' + admissibleHrs + ' hours, may be sanctioned, subject to the financial concurrence of the Finance Division - Local. Submitted please.';
   }
 
   // --- Highlight the trigger row with a flashing yellow effect ---
