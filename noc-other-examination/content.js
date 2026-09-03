@@ -54,14 +54,6 @@ const STAGE3_REMARK_RO = 'With reference to the application for a No Objection C
 // STAGE 3B / 3C: Designation landmark used to find the DO Manager
 const AGM_DESIGNATION = 'Assistant General Manager';
 
-// Stage 1D: Technical Error Handler
-const STAGE1D_TECHNICAL_ERROR_KEYWORDS = [
-'attachments submitted with the request are not accessible',
-'technical error',
-'cannot be reviewed',
-'not accessible for viewing or downloading'
-];
-
 // Stage 3E: Pending Vigilance Case Handler
 const STAGE3E_VIGILANCE_KEYWORDS = [
 'PENDING',
@@ -76,6 +68,86 @@ const STAGE3E_VIGILANCE_KEYWORDS = [
 'PENDING CASE',
 'PENDING PROCEEDINGS'
 ];
+
+// --- DO-LEVEL CLEARANCE KEYWORD LISTS (Step A) ---
+// Extracted and validated from 13 real DO sample action histories.
+// Combined phrases set BOTH booleans simultaneously.
+
+const DO_COMBINED_CLEAR_EN = [
+  'free from admin and vigilance',
+  'free from administrative and vigilance',
+  'free from vigilance and administrative',
+  'admin and vigilance angle clear',
+  'administrative and vigilance perspective clear',
+  'no admin/vigilance case is pending',
+  'no admin/vigilance case pending'
+];
+
+const DO_COMBINED_CLEAR_HI = [
+  'प्रशासनिक एवं सतर्कता दृष्टिकोण से मुक्त',
+  'प्रशासनिक और सतर्कता दृष्टिकोण से मुक्त',
+  'सतर्कता एवं प्रशासनिक दृष्टिकोण से मुक्त',
+  'सतर्कता और प्रशासनिक दृष्टिकोण से मुक्त',
+  'प्रशासनिक एवं सतर्कता स्तर पर कोई भी मामला लंबित नहीं',
+  'कर्मचारी डीओ स्तर पर प्रशासनिक एवम सतर्कता मामलों से भी मुक्त हैं',
+  'सतर्कता एवं प्रशासनिक स्तर पर कोई भी मामला लंबित नहीं'
+];
+
+const DO_ADMIN_CLEAR_EN = [
+  'free from admin',
+  'free from administrative',
+  'no admin case pending',
+  'no administrative case pending',
+  'administrative clearance: clear',
+  'admin angle clear',
+  'administrative angle clear',
+  'clear from administrative',
+  'clear from admin',
+  'there is no administrative case',
+  'no administrative case as per service record',
+  'free from any administrative angle',
+  'official is free from admin',
+  'employee is free from admin'
+];
+
+const DO_ADMIN_CLEAR_HI = [
+  'प्रशासनिक दृष्टिकोण से मुक्त',
+  'प्रशासनिक दृष्टिकोण से भी मुक्त',
+  'प्रशासनिक स्तर पर कोई भी मामला लंबित नहीं',
+  'शासिनक दृष्टिकोण से मुक्त',
+  'प्रशासनिक दृष्टिकोण से मुक्त है'
+];
+
+const DO_VIGILANCE_CLEAR_EN = [
+  'free from vigilance',
+  'no vigilance case pending',
+  'vigilance clearance: clear',
+  'vigilance angle clear',
+  'clear from vigilance',
+  'no vigilance case/cbi/acb/ed/fir case pending',
+  'no vigilance case pending and no acb/ed/cbi/fir case',
+  'vigilance status is clear',
+  'no case of cbi/acb/ed/fir',
+  'no vigilance case/cbi/acb/ed/fir',
+  'there is no vigilance case pending',
+  'official is free from vigilance',
+  'employee is free from vigilance'
+];
+
+const DO_VIGILANCE_CLEAR_HI = [
+  'सतर्कता दृष्टिकोण से मुक्त',
+  'सतर्कता दृष्टिकोण से भी मुक्त',
+  'सतर्कता स्तर पर कोई भी मामला लंबित नहीं',
+  'सतर्कता दृष्टिकोण से मुक्त है',
+  'कोई विजिलेंस केस लंबित नहीं',
+  'कोई सतर्कता मामला लंबित नहीं'
+];
+
+// Helper: Normalize text for keyword matching (collapse all whitespace to single spaces)
+function normalizeForMatching(text) {
+  if (!text) return '';
+  return text.replace(/\s+/g, ' ').trim();
+}
 
 // Used exclusively to determine whether the assistant's remark contradicts
 // BALJIT's vigilance clearance — triggering the mismatchClear condition.
@@ -110,6 +182,15 @@ const BALJIT_CLEAR_HINDI = BALJIT_CLEAR_HINDI_RAW.replace(/\s+/g, '');
 // Flexible BALJIT detection: also accept partial keyword matches
 // Core concept: "सतर्कता" (vigilance) + "मुक्त" (free) near each other
 const BALJIT_CLEAR_KEYWORDS = ['सतर्कता', 'मुक्त'];
+
+// Shared list of vigilance authority names (BALJIT SINGH, BHARATI SAINI)
+const VIGILANCE_AUTHORITY_NAMES = ['BALJIT SINGH', 'BHARATI SAINI'];
+
+function isVigilanceAuthorityName(employeeName) {
+  if (!employeeName) return false;
+  const upper = employeeName.toUpperCase();
+  return VIGILANCE_AUTHORITY_NAMES.some(function(n) { return upper.includes(n); });
+}
 
 // Mismatch remark: when BALJIT says NOT CLEAR but assistant says "in order"
 const MISMATCH_REMARK_NOT_CLEAR = 'Kindly re-examine the request. As per vigilance records, the concerned employee is not vigilance free.';
@@ -168,14 +249,6 @@ function writeLegacyPayload(stage, data) {
   }
 }
 
-
-// Helper: Check if a remark contains technical error keywords
-function hasTechnicalError(remark) {
-const lowerRemark = remark.toLowerCase();
-return STAGE1D_TECHNICAL_ERROR_KEYWORDS.some(function(keyword) {
-return lowerRemark.includes(keyword);
-});
-}
 
 // Helper: Check if a remark contains vigilance keywords
 function hasVigilanceIssue(remark) {
@@ -251,11 +324,11 @@ return prevEntry
 && prevEntry.remark.toLowerCase().includes(PERFORMA_CHECKPOINT.toLowerCase());
 }
 
-// Helper: Find the last BALJIT SINGH entry
+// Helper: Find the last vigilance authority entry (BALJIT SINGH or BHARATI SAINI)
 function getLastBaljitEntry(entries) {
 let lastBaljitIndex = -1;
 for (let i = 0; i < entries.length; i++) {
-if (entries[i].employeeName.toUpperCase().includes('BALJIT SINGH')) {
+if (isVigilanceAuthorityName(entries[i].employeeName)) {
 lastBaljitIndex = i;
 }
 }
@@ -385,86 +458,127 @@ function makeDraggable(element, handle) {
   }
 }
 
-// --- NOTIFICATION PANEL (draggable, non-blocking) ---
-function showDateNotification(hrmsDate, formDate, dayDiff, type) {
-  const existing = document.getElementById('fci-noc-date-notification');
+// --- UNIFIED COMPLIANCE PANEL (Date + DO Admin + DO Vigilance) ---
+function showUnifiedCompliancePanel(dateStatus, doStatus) {
+  const existing = document.getElementById('fci-noc-compliance-panel');
   if (existing) existing.remove();
 
-  const isMismatch = type === 'mismatch';
-  const isSevere = isMismatch && dayDiff > 7;
+  const headerBg   = '#029456'; // FCI Passport Green
+  const titleColor = '#FFFFFF';
+  const okGreen    = '#059669';
+  const warnAmber  = '#D97706';
+  const textColor  = '#064E3B';
+  const pillBg     = '#ECFDF5';
+  const pillBorder = '#A7F3D0';
 
-  // Optimised visual theme (FCI green, amber accent)
-  const headerBg    = '#029456'; // FCI Passport Green
-  const titleColor  = '#FFFFFF';
-  const accentColor = '#D97706'; // Golden Amber
-  const pillBg      = '#ECFDF5';
-  const pillBorder  = '#A7F3D0';
-  const textColor   = '#064E3B';
+  let hasWarning = false;
+  let title = '\u2713 Pre-Approval Compliance';
+
+  // --- Date Section HTML ---
+  let dateHtml = '';
+  if (dateStatus && dateStatus.hrmsDate && dateStatus.formDate) {
+    const isMismatch = dateStatus.type === 'mismatch';
+    const isSevere   = isMismatch && dateStatus.dayDiff > 7;
+    const icon = isMismatch ? (isSevere ? '\u26A0\uFE0F' : '\u2139\uFE0F') : '\u2713';
+    const msg = isMismatch
+      ? (isSevere
+          ? 'HRMS initiation is <b>' + dateStatus.dayDiff + ' days</b> after form filling. Exceeds limit.'
+          : 'HRMS initiation is <b>' + dateStatus.dayDiff + ' day(s)</b> after form filling. Within window.')
+      : 'HRMS date is <b>' + (dateStatus.dayDiff === 0 ? 'same day as' : dateStatus.dayDiff + ' day(s) prior to') + '</b> form date.';
+    if (isSevere) hasWarning = true;
+
+    dateHtml =
+      '<div style="margin-bottom:14px; border-bottom:1px solid #f0f0f0; padding-bottom:10px;">' +
+        '<div style="font-weight:600; color:' + textColor + '; margin-bottom:6px; font-size:13px;">' + icon + ' Date Compliance</div>' +
+        '<div style="color:#333; font-size:12px; margin-bottom:6px;">' + msg + '</div>' +
+        '<div style="background:' + pillBg + '; border:1px solid ' + pillBorder + '; padding:8px 10px; border-radius:4px; font-size:11px; color:' + textColor + ';">' +
+          '<b>HRMS:</b> ' + formatDate(dateStatus.hrmsDate) + ' &nbsp;|&nbsp; <b>Form:</b> ' + formatDate(dateStatus.formDate) + ' &nbsp;|&nbsp; <b>Gap:</b> ' + dateStatus.dayDiff + ' day(s)' +
+        '</div>' +
+      '</div>';
+  } else if (dateStatus) {
+    dateHtml =
+      '<div style="margin-bottom:14px; border-bottom:1px solid #f0f0f0; padding-bottom:10px;">' +
+        '<div style="font-weight:600; color:' + textColor + '; margin-bottom:6px; font-size:13px;">\u2139\uFE0F Date Compliance</div>' +
+        '<div style="color:#666; font-size:12px;">Date check skipped: Could not extract HRMS or form date.</div>' +
+      '</div>';
+  }
+
+  // --- DO Clearance Section HTML ---
+  let doHtml = '';
+  if (doStatus) {
+    if (doStatus.error) {
+      hasWarning = true;
+      doHtml =
+        '<div style="margin-bottom:14px; border-bottom:1px solid #f0f0f0; padding-bottom:10px;">' +
+          '<div style="font-weight:600; color:' + warnAmber + '; margin-bottom:6px; font-size:13px;">\u26A0\uFE0F DO-Level Clearance</div>' +
+          '<div style="color:#666; font-size:12px;">' + doStatus.error + '</div>' +
+        '</div>';
+    } else {
+      const adminOk = doStatus.adminClear;
+      const vigOk   = doStatus.vigilanceClear;
+      if (!adminOk || !vigOk) hasWarning = true;
+
+      const adminIcon  = adminOk ? '\u2713' : '\u26A0\uFE0F';
+      const adminColor = adminOk ? okGreen : warnAmber;
+      const adminMsg   = adminOk
+        ? 'Confirmed at <b>S.No. ' + doStatus.adminSlNo + '</b>'
+        : 'Not explicitly confirmed in any DO-level remark.';
+
+      const vigIcon  = vigOk ? '\u2713' : '\u26A0\uFE0F';
+      const vigColor = vigOk ? okGreen : warnAmber;
+      const vigMsg   = vigOk
+        ? 'Confirmed at <b>S.No. ' + doStatus.vigilanceSlNo + '</b>'
+        : 'Not explicitly confirmed in any DO-level remark.';
+
+      doHtml =
+        '<div style="margin-bottom:14px; border-bottom:1px solid #f0f0f0; padding-bottom:10px;">' +
+          '<div style="font-weight:600; color:' + textColor + '; margin-bottom:8px; font-size:13px;">\uD83C\uDFE2 DO-Level Clearance</div>' +
+          '<div style="margin-bottom:6px; font-size:12px; color:' + adminColor + ';">' + adminIcon + ' <b>Admin:</b> ' + adminMsg + '</div>' +
+          '<div style="font-size:12px; color:' + vigColor + ';">' + vigIcon + ' <b>Vigilance:</b> ' + vigMsg + '</div>' +
+        '</div>';
+    }
+  }
+
+  if (hasWarning) title = '\u2139\uFE0F Review Required Before Submit';
 
   const panel = document.createElement('div');
-  panel.id = 'fci-noc-date-notification';
-  
-  // Base draggable panel styles – fixed position
-  panel.style.cssText = 
-    'position:fixed;top:80px;right:20px;z-index:2147483647;width:340px;' +
+  panel.id = 'fci-noc-compliance-panel';
+  panel.style.cssText =
+    'position:fixed;top:80px;right:20px;z-index:2147483647;width:360px;' +
     'background:#ffffff;border-radius:10px;font-family:Arial,sans-serif;' +
     'font-size:13px;line-height:1.5;box-shadow:0 8px 32px rgba(0,0,0,0.2);' +
     'overflow:hidden;box-sizing:border-box;transition:opacity 0.3s ease;' +
-    'border-left:5px solid ' + accentColor + ';' +
+    'border-left:5px solid ' + (hasWarning ? warnAmber : okGreen) + ';' +
     'border-top:1px solid #d0d0d0;border-right:1px solid #d0d0d0;border-bottom:1px solid #d0d0d0;';
 
-  const title = isMismatch
-    ? (isSevere ? '⚠️ Mismatch — Exceeds 7 Days' : 'ℹ️ Mismatch — Within 7-Day Window')
-    : '✓ Date Compliance Confirmed';
-
-  let message;
-  if (isMismatch) {
-    message = isSevere
-      ? 'HRMS initiation is <b>' + dayDiff + ' days</b> after form filling. This exceeds the permissible limit.'
-      : 'HRMS initiation is <b>' + dayDiff + ' day(s)</b> after form filling. Within 7‑day window.';
-  } else {
-    const dayDiffText = dayDiff === 0 ? 'the same day as' : dayDiff + ' day(s) prior to';
-    message = 'HRMS initiation is <b>' + dayDiffText + '</b> the form filling date. Request is compliant.';
-  }
-
-  // HTML construction with dynamic dates
   panel.innerHTML =
     '<div id="fci-noc-drag-header" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:' + headerBg + ';cursor:move;user-select:none;">' +
-      '<strong style="font-size:13px;color:' + titleColor + ';margin:0;">' +
-        '<span style="color:' + accentColor + ';margin-right:6px;font-size:14px;font-style:normal;">✓</span>' + title +
-      '</strong>' +
+      '<strong style="font-size:13px;color:' + titleColor + ';margin:0;">' + title + '</strong>' +
       '<div style="display:flex;align-items:center;gap:10px;">' +
-        '<span style="color:rgba(255,255,255,0.7);font-size:14px;cursor:move;" title="Drag panel">⋮⋮</span>' +
-        '<button id="fci-noc-close-notif" style="background:none;border:none;font-size:18px;cursor:pointer;line-height:1;color:' + titleColor + ';opacity:0.8;padding:0;">&times;</button>' +
+        '<span style="color:rgba(255,255,255,0.7);font-size:14px;cursor:move;" title="Drag panel">\u22EE\u22EE</span>' +
+        '<button id="fci-noc-close-panel" style="background:none;border:none;font-size:18px;cursor:pointer;line-height:1;color:' + titleColor + ';opacity:0.8;padding:0;">&times;</button>' +
       '</div>' +
     '</div>' +
     '<div style="padding:14px;">' +
-      '<div style="margin-bottom:12px;color:#333333;font-size:12.5px;">' + message + '</div>' +
-      '<div style="background:' + pillBg + ';border:1px solid ' + pillBorder + ';padding:10px 12px;border-radius:6px;font-size:12px;margin-bottom:10px;color:' + textColor + ';">' +
-        '<div><b>HRMS Initiated:</b> ' + formatDate(hrmsDate) + '</div>' +
-        '<div><b>Form Filled:</b> ' + formatDate(formDate) + '</div>' +
-        '<div><b>Gap:</b> ' + dayDiff + ' day(s)</div>' +
-      '</div>' +
-      '<div style="font-size:11px;color:#888888;border-top:1px solid #f0f0f0;padding-top:8px;">' +
-        'Non‑blocking notice. Extension will proceed with workflow.' +
+      dateHtml +
+      doHtml +
+      '<div style="font-size:11px;color:#888;border-top:1px solid #f0f0f0;padding-top:8px;">' +
+        'Non-blocking notice. Extension proceeds with approval remark. Please review before clicking Submit.' +
       '</div>' +
     '</div>';
 
   document.body.appendChild(panel);
 
-  // Enable dragging on the header
   const dragHeader = document.getElementById('fci-noc-drag-header');
   makeDraggable(panel, dragHeader);
 
-  // Close button
-  document.getElementById('fci-noc-close-notif').addEventListener('click', function() {
+  document.getElementById('fci-noc-close-panel').addEventListener('click', function() {
     panel.style.opacity = '0';
     setTimeout(function() { panel.remove(); }, 300);
   });
 
-  // Auto‑dismiss after 30 seconds
   setTimeout(function() {
-    if (document.getElementById('fci-noc-date-notification')) {
+    if (document.getElementById('fci-noc-compliance-panel')) {
       panel.style.opacity = '0';
       setTimeout(function() { panel.remove(); }, 300);
     }
@@ -487,11 +601,6 @@ empNo: entries[i].employeeNumber || null
 return null;
 }
 
-// Helper: Find the requesting employee (alias)
-function getRequestingEmployee(entries) {
-return getInitiatingEmployee(entries);
-}
-
 // Helper: Find the DO Manager (Admin.) via AGM landmark
 // Returns the entry immediately preceding the first AGM entry with a non-empty, non-N/A remark.
 function getDoManagerEntry(entries) {
@@ -503,6 +612,128 @@ function getDoManagerEntry(entries) {
     }
   }
   return null;
+}
+
+// Helper: Find the DO Manager (Admin.) via AGM landmark, ALSO returning the AGM index.
+// This variant is needed by the DO-level clearance scan to know the boundary
+// between DO-level and RO-level history.
+// Returns: { managerEntry: <entry object>, agmIndex: <number> } or null.
+function getDoManagerEntryWithIndex(entries) {
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].designation.trim() === AGM_DESIGNATION
+        && entries[i].remark.trim() !== 'N/A'
+        && entries[i].remark.trim() !== '') {
+      if (i > 0) {
+        return {
+          managerEntry: entries[i - 1],
+          agmIndex: i
+        };
+      }
+    }
+  }
+  return null;
+}
+
+// Helper: Check a single remark for DO-level admin / vigilance clearance.
+// Returns { admin: boolean, vigilance: boolean }.
+function checkDoClearance(remark) {
+  const normEn = normalizeForMatching(remark).toLowerCase();
+  const normHi = normalizeForMatching(remark);
+  let admin = false;
+  let vigilance = false;
+  // Combined phrases (count for BOTH admin and vigilance)
+  for (const p of DO_COMBINED_CLEAR_EN) {
+    if (normEn.includes(p.toLowerCase())) { admin = true; vigilance = true; break; }
+  }
+  if (!admin || !vigilance) {
+    for (const p of DO_COMBINED_CLEAR_HI) {
+      if (normHi.includes(p)) { admin = true; vigilance = true; break; }
+    }
+  }
+  // Admin-only phrases
+  if (!admin) {
+    for (const p of DO_ADMIN_CLEAR_EN) {
+      if (normEn.includes(p.toLowerCase())) { admin = true; break; }
+    }
+  }
+  if (!admin) {
+    for (const p of DO_ADMIN_CLEAR_HI) {
+      if (normHi.includes(p)) { admin = true; break; }
+    }
+  }
+  // Vigilance-only phrases
+  if (!vigilance) {
+    for (const p of DO_VIGILANCE_CLEAR_EN) {
+      if (normEn.includes(p.toLowerCase())) { vigilance = true; break; }
+    }
+  }
+  if (!vigilance) {
+    for (const p of DO_VIGILANCE_CLEAR_HI) {
+      if (normHi.includes(p)) { vigilance = true; break; }
+    }
+  }
+  return { admin, vigilance };
+}
+
+// Helper: Evaluate DO-level clearance status using backward scan through DO-level history.
+// Returns: { adminClear, adminSlNo, vigilanceClear, vigilanceSlNo, error }
+//   adminSlNo / vigilanceSlNo = the S.No. of the entry that confirmed it, or null.
+//   error = human-readable string if AGM landmark not found, else null.
+function getDoLevelClearanceStatus(entries) {
+  const landmark = getDoManagerEntryWithIndex(entries);
+  if (!landmark || !landmark.managerEntry) {
+    return {
+      adminClear: false,
+      adminSlNo: null,
+      vigilanceClear: false,
+      vigilanceSlNo: null,
+      error: 'DO Manager (Admin.) could not be identified \u2014 AGM landmark not found.'
+    };
+  }
+  const agmIndex = landmark.agmIndex;
+  let adminClear = false;
+  let adminSlNo = null;
+  let vigilanceClear = false;
+  let vigilanceSlNo = null;
+  // --- PASS 1: Check the Manager's own landmark remark first ---
+  const mgrResult = checkDoClearance(landmark.managerEntry.remark);
+  if (mgrResult.admin) {
+    adminClear = true;
+    adminSlNo = landmark.managerEntry.slNo;
+  }
+  if (mgrResult.vigilance) {
+    vigilanceClear = true;
+    vigilanceSlNo = landmark.managerEntry.slNo;
+  }
+  // --- PASS 2: Backward scan through the rest of the DO-level portion ---
+  // Range: from agmIndex - 2 down to 0 (everything before Manager, within DO level)
+  for (let i = agmIndex - 2; i >= 0; i--) {
+    const entry = entries[i];
+    // Skip Initiator rows \u2014 they never carry clearance language
+    if (entry.actionTaken === 'Initiated') continue;
+    // Skip AGM rows \u2014 out of scope for DO-level check
+    if (entry.designation.trim() === AGM_DESIGNATION) continue;
+    // Dispatcher entries ARE included (per instruction: some offices use
+    // Dispatchers as stand-in admin assistants due to manpower shortage).
+    const result = checkDoClearance(entry.remark);
+    if (!adminClear && result.admin) {
+      adminClear = true;
+      adminSlNo = entry.slNo;
+    }
+    if (!vigilanceClear && result.vigilance) {
+      vigilanceClear = true;
+      vigilanceSlNo = entry.slNo;
+    }
+    // Early exit if both are confirmed
+    if (adminClear && vigilanceClear) break;
+  }
+  return {
+    adminClear,
+    adminSlNo,
+    vigilanceClear,
+    vigilanceSlNo,
+    error: null
+  };
 }
 
 // Helper: Read a specific field value from the page by its label's "for" attribute
@@ -758,7 +989,7 @@ const isRoChandigarh = officeValue.trim().replace(/\s+/g, ' ').toUpperCase() ===
 return { cadreValue, officeValue, isRoChandigarh };
 }
 
-// Helper: Highlight mismatch rows (BALJIT in red, Assistant in orange)
+// Helper: Highlight mismatch rows (Vigilance Authority in red, Assistant in orange)
 function highlightMismatch(tbody, baljitEntry, assistantEntry) {
 const allRows = tbody.querySelectorAll('tr');
 
@@ -768,7 +999,7 @@ if (baljitEntry) {
     if (cells.length === 8) {  
       const name = cells[4].textContent.trim().toUpperCase().replace(/\s+/g, ' ');  
       const action = cells[3].textContent.trim();  
-      if (name.includes('BALJIT SINGH') && action === 'Reviewed') {  
+      if (isVigilanceAuthorityName(name) && action === 'Reviewed') {  
         row.scrollIntoView({ behavior: 'smooth', block: 'center' });  
         row.style.backgroundColor = '#ffcccc';  
         row.style.border = '3px solid #cc0000';  
@@ -964,39 +1195,17 @@ for (let i = 0; i < entries.length; i++) {
 }  
 const entryBeforeAmitPending = lastAmitPendingIndex > 0 ? entries[lastAmitPendingIndex - 1] : null;  
 
-const stage3c = doManagerEntry  
-  && entryBeforeAmitPending  
-  && entryBeforeAmitPending.employeeName.toUpperCase().trim()  
-       === doManagerEntry.employeeName.toUpperCase().trim()  
-  && lastAmitPendingIndex !== -1  
-  && !stage2  
-  && !stage3  
-  && !stage3e  
-  && !stage3bAssistantIssue;  
+const stage3c = doManagerEntry
+  && entryBeforeAmitPending
+  && entryBeforeAmitPending.employeeName.toUpperCase().trim()
+       === doManagerEntry.employeeName.toUpperCase().trim()
+  && lastAmitPendingIndex !== -1
+  && !stage2
+  && !stage3
+  && !stage3e
+  && !stage3bAssistantIssue;
 
-// Stage 1D: Technical Error Handler  
-let technicalErrorIndex = -1;  
-for (let i = 0; i < entries.length; i++) {  
-  if (entries[i].actionTaken === 'Reviewed' && hasTechnicalError(entries[i].remark)) {  
-    technicalErrorIndex = i;  
-    break;  
-  }  
-}  
-
-const techErrorEntry  = technicalErrorIndex !== -1 ? entries[technicalErrorIndex] : null;  
-const afterTechError  = technicalErrorIndex !== -1 && technicalErrorIndex + 1 < entries.length ? entries[technicalErrorIndex + 1] : null;  
-const afterTechError2 = technicalErrorIndex !== -1 && technicalErrorIndex + 2 < entries.length ? entries[technicalErrorIndex + 2] : null;  
-
-const stage1d = techErrorEntry  
-  && afterTechError  
-  && afterTechError.actionTaken === 'Reviewed'  
-  && afterTechError.employeeName.toUpperCase().includes('ABHIMANYU SWAMI')  
-  && afterTechError2  
-  && afterTechError2.employeeName.toUpperCase().includes(STAGE2_NEXT_NAME)  
-  && afterTechError2.actionTaken.trim() === STAGE2_NEXT_ACTION  
-  && afterTechError2.remark.trim() === STAGE2_NEXT_REMARK;  
-
-// Stage 1C  
+// Stage 1C
 const stage1c = lastAssistantReviewed  
   && isPostPerformaFlag  
   && !abhimanyuPresent  
@@ -1067,7 +1276,6 @@ console.log('[FCI NOC Assistant] MISMATCH (BALJIT Ambiguous):                   
 console.log('[FCI NOC Assistant] Stage 3B (Send back to DO Manager):               ' + (stage3b ? 'MATCH' : 'no match'));  
 console.log('[FCI NOC Assistant] Stage 3D (Send back to Initiating Official - RO): ' + (stage3d ? 'MATCH' : 'no match'));  
 console.log('[FCI NOC Assistant] Stage 3C (Re-send to assistant):                  ' + (stage3c ? 'MATCH' : 'no match'));  
-console.log('[FCI NOC Assistant] Stage 1D (Technical Error Handler):               ' + (stage1d ? 'MATCH' : 'no match'));  
 console.log('[FCI NOC Assistant] Stage 2  (Send to Assistant):                     ' + (stage2  ? 'MATCH' : 'no match'));  
 console.log('[FCI NOC Assistant] Stage 1C (Send to ABHIMANYU after performa):      ' + (stage1c ? 'MATCH' : 'no match'));  
 console.log('[FCI NOC Assistant] Stage 1  (Send to ABHIMANYU SWAMI):               ' + (stage1  ? 'MATCH' : 'no match'));  
@@ -1076,7 +1284,7 @@ if (doManagerEntry) {
   console.log('[FCI NOC Assistant] DO Manager identified: "' + doManagerEntry.employeeName + '" (S.No. ' + doManagerEntry.slNo + ')');  
 }  
 
-// --- PRIORITY ORDER: 3E → 3 → MISMATCH → 3B → 3D → 3C → 1D → 2 → 1C → 1B → 1 ---  
+// --- PRIORITY ORDER: 3E → 3 → MISMATCH → 3B → 3D → 3C → 2 → 1C → 1B → 1 ---  
 
 if (stage3e) {  
   const assistantName = lastAssistantReviewed ? lastAssistantReviewed.employeeName : 'Assistant';  
@@ -1098,33 +1306,51 @@ if (stage3e) {
 
   setTimeout(function() { fillReviewerRemarks(stage3eRemark, true); }, 2000);  
 
-} else if (stage3) {  
-  const assistantName = lastAssistantReviewed ? lastAssistantReviewed.employeeName : 'Assistant';  
+} else if (stage3) {
+  const assistantName = lastAssistantReviewed ? lastAssistantReviewed.employeeName : 'Assistant';
   console.log('[FCI NOC Assistant] Stage 3: Filling approval remark...');
   _fciWorkflowCache.hasRecommendation = true;
-  _fciWorkflowCache.recommendedSummary = 'Stage 3 — Filling approval remark (request is in order)';
+  _fciWorkflowCache.recommendedSummary = 'Stage 3 \u2014 Filling approval remark (request is in order)';
   
-  // --- Date validation: HRMS initiation date vs form filling date (visual notification only) ---
+  // --- Date validation: HRMS initiation date vs form filling date ---
   const hrmsDate = getHrmsInitiationDate(entries);
   const formDate = extractFormFillingDate(lastAssistantReviewed ? lastAssistantReviewed.remark : '');
+  let dateStatus = null;
   if (hrmsDate && formDate) {
     const oneDay = 24 * 60 * 60 * 1000;
     if (hrmsDate > formDate) {
       const dayDiff = Math.round((hrmsDate - formDate) / oneDay);
-      showDateNotification(hrmsDate, formDate, dayDiff, 'mismatch');
-      console.warn('[FCI NOC Assistant] ⚠️ DATE MISMATCH: HRMS (' + formatDate(hrmsDate) + ') is ' + dayDiff + ' day(s) AFTER form date (' + formatDate(formDate) + '). Notification shown. Proceeding with approval remark.');
+      dateStatus = { hrmsDate, formDate, dayDiff, type: 'mismatch' };
+      console.warn('[FCI NOC Assistant] \u26A0\uFE0F DATE MISMATCH: HRMS (' + formatDate(hrmsDate) + ') is ' + dayDiff + ' day(s) AFTER form date (' + formatDate(formDate) + ').');
     } else {
       const dayDiff = Math.round((formDate - hrmsDate) / oneDay);
-      showDateNotification(hrmsDate, formDate, dayDiff, 'compliant');
-      console.log('[FCI NOC Assistant] Date check confirmed: HRMS date (' + formatDate(hrmsDate) + ') is on or before Form date (' + formatDate(formDate) + '). Notification shown. Proceeding with approval remark.');
+      dateStatus = { hrmsDate, formDate, dayDiff, type: 'compliant' };
+      console.log('[FCI NOC Assistant] Date check confirmed: HRMS date (' + formatDate(hrmsDate) + ') is on or before Form date (' + formatDate(formDate) + ').');
     }
   } else {
     console.log('[FCI NOC Assistant] Date check skipped: Could not extract HRMS date or form date from remark.');
   }
 
+  // --- DO-Level Admin + Vigilance Clearance Check (non-RO only) ---
+  let doStatus = null;
+  if (!isRoChandigarh) {
+    doStatus = getDoLevelClearanceStatus(entries);
+    if (doStatus.error) {
+      console.warn('[FCI NOC Assistant] DO-level check: ' + doStatus.error);
+    } else {
+      console.log('[FCI NOC Assistant] DO Admin clear: ' + (doStatus.adminClear ? 'YES (S.No. ' + doStatus.adminSlNo + ')' : 'NO'));
+      console.log('[FCI NOC Assistant] DO Vigilance clear: ' + (doStatus.vigilanceClear ? 'YES (S.No. ' + doStatus.vigilanceSlNo + ')' : 'NO'));
+    }
+  } else {
+    console.log('[FCI NOC Assistant] DO-level check skipped: RO Chandigarh file.');
+  }
+
+  // --- Show unified compliance panel ---
+  showUnifiedCompliancePanel(dateStatus, doStatus);
+
   highlightTriggerRow(tbody, assistantName, 'Reviewed');  
   const remarkToFill = isRoChandigarh ? STAGE3_REMARK_RO : STAGE3_REMARK_NON_RO;  
-  setTimeout(function() { fillReviewerRemarks(remarkToFill, false); }, 2000);  
+  setTimeout(function() { fillReviewerRemarks(remarkToFill, false); }, 2000);
 
 } else if (mismatchNotClear) {  
   const assistantName = lastAssistantReviewed ? lastAssistantReviewed.employeeName : 'Assistant';  
@@ -1236,59 +1462,6 @@ if (stage3e) {
   sessionStorage.setItem('fci_noc_assistant_remark', ASSISTANT_REMARK);  
   sessionStorage.removeItem('fci_noc_target_employee_name');  
   setTimeout(clickAddReviewer, 2000);  
-
-} else if (stage1d) {  
-  console.log('[FCI NOC Assistant] Stage 1D: Technical error detected.');
-  _fciWorkflowCache.hasRecommendation = true;
-  _fciWorkflowCache.recommendedSummary = 'Stage 1D — Technical error: sending back for re-upload';
-  
-  if (isRoChandigarh) {  
-    const requestingEmployee = getRequestingEmployee(entries);  
-    if (!requestingEmployee) {  
-      console.warn('[FCI NOC Assistant] Stage 1D (RO): Could not identify requesting employee. No action taken.');  
-      return;  
-    }  
-    const technicalRemark = 'The attachments submitted with the request are not accessible for viewing or downloading due to a technical error. Kindly re-submit the required documents/attachments for further processing.';  
-    highlightTriggerRow(tbody, techErrorEntry.employeeName, 'Reviewed');  
-
-    sessionStorage.setItem('fp.chosen',                    'recommended');
-    sessionStorage.setItem('fp.route.recommended.name',    requestingEmployee.name);
-    sessionStorage.setItem('fp.route.recommended.office',  RO_CHANDIGARH);
-    sessionStorage.setItem('fp.route.recommended.officeType', OFFICE_TYPE_RO);
-    sessionStorage.setItem('fp.remark.recommended',        technicalRemark);
-
-    sessionStorage.setItem('fci_noc_stage',                '1d-ro');  
-    sessionStorage.setItem('fci_noc_office_type',          OFFICE_TYPE_RO);  
-    sessionStorage.setItem('fci_noc_target_office',        RO_CHANDIGARH);  
-    sessionStorage.setItem('fci_noc_target_employee_name', requestingEmployee.name);  
-    sessionStorage.setItem('fci_noc_assistant_remark',     technicalRemark);  
-    sessionStorage.removeItem('fci_noc_assistant_emp');  
-    sessionStorage.removeItem('fci_noc_assistant_name');  
-    setTimeout(clickAddReviewer, 2000);  
-
-  } else {  
-    if (!doManagerEntry) {  
-      console.warn('[FCI NOC Assistant] Stage 1D (Non-RO): Could not identify DO Manager. No action taken.');  
-      return;  
-    }  
-    const technicalRemark = 'Due to an inadvertent technical issue, the documents earlier uploaded for processing the request are not accessible, as the attachments are not opening. It is therefore requested to kindly upload the requisite documents again and resubmit the request for further processing.';  
-    highlightTriggerRow(tbody, techErrorEntry.employeeName, 'Reviewed');  
-
-    sessionStorage.setItem('fp.chosen',                    'recommended');
-    sessionStorage.setItem('fp.route.recommended.name',    doManagerEntry.employeeName);
-    sessionStorage.setItem('fp.route.recommended.office',  officeValue.trim().replace(/\s+/g, ' ').toUpperCase());
-    sessionStorage.setItem('fp.route.recommended.officeType', OFFICE_TYPE_DO);
-    sessionStorage.setItem('fp.remark.recommended',        technicalRemark);
-
-    sessionStorage.setItem('fci_noc_stage',                '1d-do');  
-    sessionStorage.setItem('fci_noc_office_type',          OFFICE_TYPE_DO);  
-    sessionStorage.setItem('fci_noc_target_office',        officeValue.trim().replace(/\s+/g, ' ').toUpperCase());  
-    sessionStorage.setItem('fci_noc_target_employee_name', doManagerEntry.employeeName);  
-    sessionStorage.setItem('fci_noc_assistant_remark',     technicalRemark);  
-    sessionStorage.removeItem('fci_noc_assistant_emp');  
-    sessionStorage.removeItem('fci_noc_assistant_name');  
-    setTimeout(clickAddReviewer, 2000);  
-  }  
 
 } else if (stage2) {  
   const assistant = decideAssistant(cadreValue, officeValue);  
@@ -1517,18 +1690,12 @@ console.warn('[FCI NOC Assistant] "Add Reviewer" button not found.');
 
 function loadFramework() {
   return new Promise((resolve) => {
-    // Load floating window framework
-    const fwScript = document.createElement('script');
-    fwScript.src = chrome.runtime.getURL('floating-window-framework/core/floating_window.js');
-    fwScript.onload = () => {
-      console.log('[FCI NOC Assistant] Floating window framework loaded');
-      resolve();
-    };
-    fwScript.onerror = () => {
-      console.warn('[FCI NOC Assistant] Failed to load floating window framework');
-      resolve();
-    };
-    document.head.appendChild(fwScript);
+    // floating_window.js is registered statically in manifest.json content_scripts,
+    // running in this same ISOLATED world. Dynamic DOM injection would execute the
+    // script in the page's MAIN world, where this content script cannot see its
+    // window.FloatingWindow global — so we no longer inject it here.
+    console.log('[FCI NOC Assistant] Floating window framework registered statically via manifest');
+    resolve();
   });
 }
 
