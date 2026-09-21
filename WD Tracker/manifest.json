@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "HRMS Head-Wise Request Tracker",
+  "version": "1.5",
+  "description": "Automatically tracks HRMS daily request workflows and syncs with Google Sheets.",
+  "permissions": [
+    "alarms",
+    "tabs",
+    "storage"
+  ],
+  "host_permissions": [
+    "*://*.hrmsfci.in/mss/dashboard*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.hrmsfci.in/mss/dashboard*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ]
+}
