@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "FCI Generic Floating Panel",
+  "version": "1.0.2",
+  "description": "Standalone generic floating panel for HRMS Work Review and Add Reviewer pages.",
+  "permissions": [],
+  "host_permissions": ["*://*/*"],
+  "content_scripts": [
+    {
+      "matches": ["*://*/*"],
+      "js": [
+        "gfp_logger.js",
+        "gfp_storage.js",
+        "gfp_select2.js",
+        "gfp_navigation.js",
+        "gfp_payload.js",
+        "gfp_panel.js",
+        "content_work_review.js"
+      ],
+      "css": ["gfp.css"],
+      "run_at": "document_idle",
+      "world": "ISOLATED"
+    },
+    {
+      "matches": ["*://*/*"],
+      "js": [
+        "content_add_reviewer.js"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    }
+  ]
+}

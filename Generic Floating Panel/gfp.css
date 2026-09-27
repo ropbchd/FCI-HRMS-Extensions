@@ -1,0 +1,82 @@
+/* FCI Generic Floating Panel — Passport Theme */
+#fci-gfp-panel {
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  width: 320px;
+  background: #ffffff;
+  border: 1px solid #d0d0d0;
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.15);
+  font-family: Arial, sans-serif;
+  font-size: 13px;
+  color: #333;
+  z-index: 2147483647;
+  box-sizing: border-box;
+}
+
+#fci-gfp-panel * {
+  box-sizing: border-box;
+}
+
+#fci-gfp-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: #029456;
+  border-top-left-radius: 9px;
+  border-top-right-radius: 9px;
+  cursor: move;
+  user-select: none;
+}
+
+.fci-gfp-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: bold;
+  color: #fff;
+}
+
+.fci-gfp-body {
+  padding: 14px;
+}
+
+.fci-gfp-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fci-gfp-btn {
+  width: 100%;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: Arial, sans-serif;
+  cursor: pointer;
+  text-align: center;
+  transition: filter .15s ease, transform .1s ease;
+}
+
+.fci-gfp-btn-reexamine {
+  background: #FFDBBB;
+  border-color: #E2B792;
+  color: #4A2B0F;
+}
+
+.fci-gfp-btn-reexamine:hover {
+  filter: brightness(.93);
+}
+
+.fci-gfp-btn-return {
+  background: #997E67;
+  border-color: #7D6550;
+  color: #fff;
+}
+
+.fci-gfp-btn-return:hover {
+  filter: brightness(.90);
+}
