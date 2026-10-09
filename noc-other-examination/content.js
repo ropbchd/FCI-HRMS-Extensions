@@ -77,6 +77,8 @@ const DO_COMBINED_CLEAR_EN = [
   'free from admin and vigilance',
   'free from administrative and vigilance',
   'free from vigilance and administrative',
+  'free from vigilance and admin angle',
+  'free from administrative angle and vigilance angle',
   'admin and vigilance angle clear',
   'administrative and vigilance perspective clear',
   'no admin/vigilance case is pending',
@@ -85,7 +87,9 @@ const DO_COMBINED_CLEAR_EN = [
 
 const DO_COMBINED_CLEAR_HI = [
   'प्रशासनिक एवं सतर्कता दृष्टिकोण से मुक्त',
+  'प्रशासनिक एवम सतर्कता दृष्टि से मुक्त',
   'प्रशासनिक और सतर्कता दृष्टिकोण से मुक्त',
+  'प्रशासन और सतर्कता दृष्टिकोण से मुक्त है',
   'सतर्कता एवं प्रशासनिक दृष्टिकोण से मुक्त',
   'सतर्कता और प्रशासनिक दृष्टिकोण से मुक्त',
   'प्रशासनिक एवं सतर्कता स्तर पर कोई भी मामला लंबित नहीं',

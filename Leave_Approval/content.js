@@ -1,4 +1,14 @@
-// FCI HPL / Medical Leave Assistant — Review Page Script v1.0
+// FCI HPL / Medical Leave Assistant — Review Page Script v1.1
+//
+// CHANGELOG v1.1:
+// 1. Removed five verification-only checks from Step 6 panel (duration consistency, declaration box,
+//    attachment, link officer in absence, office assumed display). Kept: leave period row,
+//    HPL balance row, suggestion text. Deleted unused helpers: inclusiveDays, readDeclaration,
+//    hasAttachment, countLinkOfficers, and the daysByDates variable.
+// 2. Added prominent red alert block at top of panel when HPL balance < duration (both readable):
+//    background #ffebee, border 2px solid #c62828, text #b71c1c bold 14px.
+//    Falls back to small warning row if either value unreadable.
+// 3. Added "Medical Certificate" as fifth document type in DOC_TYPES and buildFinalRemark().
 //
 // Layer 1 (this file, request-specific): reads the action history, detects the step,
 //   auto-routes to the assistant (step 3) or shows the final-review panel (step 6).
@@ -50,7 +60,7 @@
     'Kindly attach the medical certificate / fitness certificate in the appropriate format for the further processing.';
 
   const SALUTATIONS = ['Shri', 'Smt.', 'Ms.'];
-  const DOC_TYPES = ['Discharge Summary', 'Prescription', 'Form 4', 'Form 4 & 5'];
+  const DOC_TYPES = ['Discharge Summary', 'Prescription', 'Form 4', 'Form 4 & 5', 'Medical Certificate'];
 
   // ------------------------------------------------------------------ STATE
   const cache = {
@@ -129,10 +139,6 @@
     const n = new Date();
     return new Date(n.getFullYear(), n.getMonth(), n.getDate());
   }
-  function inclusiveDays(fromD, toD) {
-    if (!fromD || !toD) return NaN;
-    return Math.round((toD.getTime() - fromD.getTime()) / 86400000) + 1;
-  }
   function fmtNum(n) {
     return String(parseFloat(Number(n).toFixed(2)));
   }
@@ -175,49 +181,6 @@
   function isLeavePeriodOver(leave) {
     if (!leave.toD) return false;
     return todayMidnight().getTime() > leave.toD.getTime();
-  }
-
-  function readDeclaration() {
-    const boxes = document.querySelectorAll('input[type="checkbox"]');
-    for (let i = 0; i < boxes.length; i++) {
-      let node = boxes[i];
-      for (let up = 0; up < 4 && node; up++) {
-        node = node.parentElement;
-        const txt = node ? (node.textContent || '') : '';
-        if (node && txt.length < 600 && /hereby declare/i.test(txt)) {
-          return { found: true, checked: boxes[i].checked };
-        }
-      }
-    }
-    return { found: false, checked: false };
-  }
-
-  function hasAttachment() {
-    const els = document.querySelectorAll('a, button');
-    for (let i = 0; i < els.length; i++) {
-      if (/view attachment/i.test(els[i].textContent)) return true;
-    }
-    return false;
-  }
-
-  function countLinkOfficers() {
-    const tables = document.querySelectorAll('table');
-    for (let i = 0; i < tables.length; i++) {
-      const txt = (tables[i].textContent || '').toUpperCase();
-      if (txt.indexOf('EMPLOYEE CODE') !== -1 && txt.indexOf('EMPLOYEE NAME') !== -1 &&
-          txt.indexOf('ACTION TAKEN') === -1) {
-        let n = 0;
-        tables[i].querySelectorAll('tbody tr').forEach(function (tr) {
-          if (!tr.querySelectorAll('td').length) return;
-          if (tr.querySelector('.dataTables_empty')) return;
-          const t = (tr.textContent || '').toUpperCase();
-          if (t.indexOf('EMPLOYEE CODE') !== -1 || !t.trim()) return;
-          n++;
-        });
-        return n;
-      }
-    }
-    return 0;
   }
 
   // ------------------------------------------------------------------ ROUTING RULES
@@ -453,6 +416,8 @@
     } else if (f.docType === 'Form 4 & 5') {
       r += 'A Form 4 & 5 in the prescribed format and signed by the authorized practitioner, dated ' + f.docDate +
         ', confirming the inability of the official in attending the office ' + period;
+    } else if (f.docType === 'Medical Certificate') {
+      r += 'A Medical Certificate dated ' + f.docDate + ', confirming the inability of the official in attending the office ' + period;
     }
     r += 'A fitness certificate dated ' + f.fitCertDate + ' states that the officer is fit to resume duty with effect from ' +
       f.fitDate + '. ';
@@ -510,7 +475,6 @@
 
   function startStep6(leave, prev) {
     const over = isLeavePeriodOver(leave);
-    const daysByDates = inclusiveDays(leave.fromD, leave.toD);
     const durOk = !isNaN(leave.duration);
     const balOk = !isNaN(leave.balance);
 
@@ -520,25 +484,14 @@
       ? checkRow('ok', 'Leave period is over (ended ' + leave.toDate + ')')
       : checkRow('warn', 'Leave period not yet over — ends ' + leave.toDate));
     if (durOk && balOk) {
-      checks.push(leave.balance >= leave.duration
-        ? checkRow('ok', 'HPL balance ' + fmtNum(leave.balance) + ' covers ' + fmtNum(leave.duration) + ' required')
-        : checkRow('warn', 'HPL balance ' + fmtNum(leave.balance) + ' is LESS than ' + fmtNum(leave.duration) + ' required'));
+      if (leave.balance >= leave.duration) {
+        checks.push(checkRow('ok', 'HPL balance ' + fmtNum(leave.balance) +
+          ' covers ' + fmtNum(leave.duration) + ' required'));
+      }
+      // a shortfall is shown by the red alert block at the top of the panel
     } else {
       checks.push(checkRow('warn', 'Could not read Duration / Current Balance from the page'));
     }
-    if (durOk && !isNaN(daysByDates)) {
-      checks.push(Math.abs(leave.duration - 2 * daysByDates) < 0.001
-        ? checkRow('ok', 'Duration ' + fmtNum(leave.duration) + ' = 2 × ' + daysByDates + ' day(s) between the dates')
-        : checkRow('warn', 'Duration ' + fmtNum(leave.duration) + ' ≠ 2 × ' + daysByDates + ' day(s) between the dates — check session'));
-    }
-    const decl = readDeclaration();
-    checks.push(!decl.found ? checkRow('info', 'Declaration checkbox not found on the page')
-      : (decl.checked ? checkRow('ok', 'Declaration box is ticked') : checkRow('warn', 'Declaration box is NOT ticked')));
-    checks.push(hasAttachment() ? checkRow('ok', 'Attachment is present (content not checked)')
-      : checkRow('warn', 'No attachment link found'));
-    checks.push(countLinkOfficers() > 0 ? checkRow('ok', 'Link Officer in Absence is listed')
-      : checkRow('warn', 'No Link Officer in Absence listed'));
-    checks.push(checkRow('info', 'Office assumed: ' + DEFAULT_OFFICE));
 
     const suggestion = over
       ? 'Leave period is over: if the documents are in order, generate the final remark below. If they are missing or improper, use "Return to Previous Level" (Backward Review remark).'
@@ -548,6 +501,18 @@
     cache.recommendedSummary = over
       ? 'Step 6: leave period over — generate final remark, or return to employee if documents are missing'
       : 'Step 6: leave period not over — return to employee (retain & resubmit)';
+
+    // Build the alert for insufficient HPL balance (if both values readable and balance < duration)
+    let balanceAlertHtml = '';
+    if (durOk && balOk && leave.balance < leave.duration) {
+      balanceAlertHtml =
+        '<div style="background:#ffebee;border:2px solid #c62828;border-radius:6px;padding:10px;margin-bottom:12px;">' +
+          '<div style="color:#b71c1c;font-weight:bold;font-size:14px;">' +
+            '⚠ INSUFFICIENT HPL BALANCE — Available: ' + esc(fmtNum(leave.balance)) +
+            ', Required: ' + esc(fmtNum(leave.duration)) +
+          '</div>' +
+        '</div>';
+    }
 
     // ---- panel
     const old = document.getElementById('fci-lv-final-panel');
@@ -566,6 +531,7 @@
         '<button id="fci-lv-close" style="background:none;border:none;font-size:18px;cursor:pointer;line-height:1;color:#fff;opacity:0.8;padding:0;width:28px;height:28px;">&times;</button>' +
       '</div>' +
       '<div style="padding:14px;max-height:calc(100vh - 180px);overflow-y:auto;">' +
+        balanceAlertHtml +
         '<div style="background:#f7f9fc;padding:10px;border-radius:6px;margin-bottom:12px;font-size:12px;">' +
           '<strong>Employee:</strong> ' + esc(leave.empName) + ' (' + esc(leave.empNo) + ')<br>' +
           '<strong>Leave:</strong> ' + esc(leave.fromDate) + ' to ' + esc(leave.toDate) +

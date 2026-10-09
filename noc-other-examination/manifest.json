@@ -5,8 +5,7 @@
   "description": "Automates NOC request processing on FCI HRMS portal",
   "permissions": [
     "activeTab",
-    "scripting",
-    "unlimitedStorage"
+    "scripting"
   ],
   "host_permissions": [
     "https://www.hrmsfci.in/*",
@@ -38,10 +37,7 @@
       ],
       "js": [
         "content.js",
-        "learning/vendor/dexie.min.js",
-        "learning/storage.js",
-        "learning/page-type-scorer.js",
-        "learning/patterns.js"
+        "floating_window.js"
       ],
       "run_at": "document_idle",
       "css": [
@@ -54,29 +50,13 @@
         "https://hrmsfci.in/workflow/add-reviewer/*"
       ],
       "js": [
-        "learning/vendor/dexie.min.js",
-        "learning/storage.js",
-        "learning/page-type-scorer.js",
-        "learning/patterns.js",
-        "floating-window-framework/core/floating_window.js",
-        "content_add_reviewer.js"
+        "content_add_reviewer.js",
+        "floating_window.js"
       ],
       "run_at": "document_idle",
       "world": "MAIN",
       "css": [
         "floating_window.css"
-      ]
-    }
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "floating-window-framework/**/*",
-        "learning/**/*"
-      ],
-      "matches": [
-        "https://www.hrmsfci.in/*",
-        "https://hrmsfci.in/*"
       ]
     }
   ]
